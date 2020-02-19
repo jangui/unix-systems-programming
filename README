@@ -1,3 +1,0 @@
-There is a weird bug that when running env with a command, it fails to execute
-
-however, env -i [key=vals] command does work
