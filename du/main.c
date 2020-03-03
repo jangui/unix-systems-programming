@@ -7,109 +7,151 @@
 #include <sys/stat.h>
 #include <string.h>
 
-/*
-  TODO 
-    tokenize files names
-    if filename is curr dir, getSize of it, don't du it
-*/
+//default capacity for vector holding seen inodes
+#define DEFAULT_CAPACITY 10
 
-//struct used to keep track of hardlinks that have already been seen
-struct hardlink {
+//LL of seen inodes
+struct inoLL{
   dev_t id;   //device number file exists on
   ino_t inum; //inode number of file
-  int seen;   //count of how many times seen during traveral
-};
+  struct inoLL *next;
+} typedef inoLL;
 
-/*
- struct stat {
-    dev_t     st_dev;     ID of device containing file
-    ino_t     st_ino;     inode number 
-    mode_t    st_mode;    protection 
-    nlink_t   st_nlink;   number of hard links
-    uid_t     st_uid;     user ID of owner 
-    gid_t     st_gid;     group ID of owner 
-    dev_t     st_rdev;    device ID (if special file) 
-    off_t     st_size;    total size, in bytes 
-    blksize_t st_blksize; blocksize for file system I/O 
-    blkcnt_t  st_blocks;  number of 512B blocks allocated 
-    time_t    st_atime;   time of last access 
-    time_t    st_mtime;   time of last modification 
-    time_t    st_ctime;   time of last status change 
-};
-*/
+inoLL* insertLL(inoLL *head, dev_t id, ino_t inum) {
+  struct inoLL *ll = malloc(sizeof(inoLL));
+  if (ll == NULL) {perror("malloc failed");exit(errno);}
+  ll->id = id;
+  ll->inum = inum;
+  ll->next = head;
+  return ll;
+}
 
-#define DEBUG(x) printf("got here %d\n", x);
+//returns 1 if inode in LL else -1
+int inoInLL(dev_t id, ino_t inum, inoLL *head) {
+  inoLL *ptr = head;
+  while (ptr != NULL) {
+    if ( (ptr->id == id) && (ptr->inum == inum)) {
+      return 1;
+    } 
+    ptr = ptr->next;
+  }
+  return -1;
+}
 
-int getSize(char *filepath, int print_flag);
+void freeLL(inoLL *head) {
+  inoLL *ptr = head;
+  while (head != NULL) {
+    head = head->next;
+    free(ptr);
+    ptr = head;
+  } 
+}
 
-int du(char *folderpath) {
-  DIR *d = opendir(folderpath);
 
+blkcnt_t getSize(char *filename) {
+  //get file stats
+  struct stat fs;
+  if (lstat(filename, &fs) == -1) {
+    fprintf(stderr, "%s: ", filename);
+    perror("couldn't get file stats"); 
+    exit(errno);
+  }
+  return fs.st_blocks;
+}
+
+//concatinates 2 strings
+//make sure to free later
+char *concat(char *s1, char *s2) {
+  char *newName = malloc(sizeof(char) * (strlen(s1)+1+strlen(s2)+1));
+  if (newName == NULL) {perror("malloc failed");exit(errno);}
+  strcpy(newName, s1);
+  strcat(newName, s2);
+  return newName;
+}
+
+
+blkcnt_t handleFile(char *folderName, DIR *d, inoLL *head)  {
+
+  struct dirent *dir;
+  blkcnt_t size = 0;
+
+  //iterate over directory
+  errno = 0;
+  while( (dir = readdir(d)) != NULL) {
+    if (errno != 0) {perror("readdir failed");exit(errno);}
+    char *fp = concat(folderName, dir->d_name);
+
+    struct stat fs;
+    //get file stats
+    if (lstat(fp, &fs) == -1) {
+      fprintf(stderr, "%s: ", fp);
+      perror("couldn't get file stats"); 
+      exit(errno);
+    }
+
+    //if dir and not .. or ., recurse
+    if (S_ISDIR(fs.st_mode) && !(S_ISLNK(fs.st_mode)) && strcmp(dir->d_name, "..") != 0 && strcmp(dir->d_name, ".") != 0) {
+
+      blkcnt_t dir_size = getSizeDir(fp, head);
+      size += dir_size;
+      printf("%ld\t%s\n", dir_size, fp);
+      head = insertLL(head, fs.st_dev, fs.st_ino);
+
+    } else if (strcmp(dir->d_name, "..") != 0) {
+      int flag = inoInLL(fs.st_dev, fs.st_ino, head);
+      if (flag == -1) {
+        size += getSize(fp);
+        head = insertLL(head, fs.st_dev, fs.st_ino);
+      }
+    }
+    free(fp); fp == NULL;
+  }
+}
+
+blkcnt_t getSizeDir(char *folderpath, inoLL *head) {
   //try to open directory
+  DIR *d = opendir(folderpath);
   if (d == NULL) {
     fprintf(stderr, "%s: ", folderpath);
     perror("couldn't open directory");
     exit(errno);
   }
-
-  //iterate over directory
-  errno = 0;
-  struct dirent *dir; ;
-  int size = 0;
-  while( (dir = readdir(d)) != NULL) {
-    //get size of each item
-    //don't of  parent dir
-    if (strcmp(dir->d_name, "..") != 0) {
-      size += getSize(dir->d_name, 0); 
-    }
-  }
-
+  char *folderName = concat(folderpath, "/");
+  handleFile(folderpath, d, head);
   //close directory
   if (closedir(d) == -1) {
     fprintf(stderr, "%s: ", folderpath);
     perror("couldn't close directory");
     exit(errno);
   }
-  
-  //print total size of dir and return it
-  printf("%d\t%s\n", size, folderpath);
+  free(folderName); folderName == NULL;
+
   return size;
 }
 
-int getSize(char *filepath, int print_flag) {
+void du(char *filepath) {
   struct stat fs;
+
   //get file stats
   if (lstat(filepath, &fs) == -1) {
     fprintf(stderr, "%s: ", filepath);
     perror("couldn't get file stats"); 
     exit(errno);
   }
-  
-  //if directory and not link, recursive get size of directory
-  //however if directory is curr directory, return size instead
-  if (S_ISDIR(fs.st_mode) && !(S_ISLNK(fs.st_mode)) && strcmp(filepath, ".")!=0) {
-    //change working directory to directory we are going to traverse
-    if (chdir(filepath) == -1) {
-      fprintf(stderr, "%s: ", filepath);
-      perror("fail to change working directory");
-      exit(errno);
-    }
-    //get size
-    int size = du(filepath);
-    
-    //change working directory back
-    if (chdir("..") == -1) {
-      fprintf(stderr, "%s: ", filepath);
-      perror("fail to change working directory");
-      exit(errno);
-    }
-    return size;
-  } 
 
-  //print if flag set
-  //only used if du is being used to calc one file's size
-  if (print_flag == 1) printf("%ld\t%s\n", fs.st_blocks, filepath);
-  return fs.st_blocks;
+  //if directory and not symlink, recurse on directory
+  if (S_ISDIR(fs.st_mode) && !(S_ISLNK(fs.st_mode))) {
+    inoLL *head = malloc(sizeof(inoLL));
+    head->id = -1;
+    head->inum = -1;
+    head->next = NULL;
+    blkcnt_t size = getSizeDir(filepath, head);
+    printf("%ld\t%s\n", size, filepath);
+    freeLL(head);
+
+  } else if (S_ISREG(fs.st_mode)) {
+    printf("%ld\t%s\n", fs.st_blocks, filepath);
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -121,9 +163,9 @@ int main(int argc, char *argv[]) {
       break;
     case 2: ;
       //filepath provided
-      getSize(argv[1], 1);
+      du(argv[1]);
       break;
-    default:
+    default:;
       //usage error
       fprintf(stderr, "usage: %s [optional] <filepath>\n", argv[0]);
       exit(1);
