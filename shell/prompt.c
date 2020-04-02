@@ -2,8 +2,8 @@
 #include <unistd.h> //getcwd, gethostname, getuid
 #include <pwd.h> //getpwuid, struct passwd 
 #include <errno.h> //errno
-#include <stdio.h> //printf, perror
-#include <stdlib.h> //exit
+#include <stdio.h> //printf, perror, fprintf
+#include <stdlib.h> //exit, malloc
 #include <string.h> //strcmp
 
 char *getUserName() {
@@ -17,7 +17,7 @@ void displayPrompt(char *prompt, int err) {
   //get cwd
   char cwd[PATH_MAX];
   if (getcwd(cwd, sizeof(cwd)) == NULL) {
-       perror("getcwd() error");
+       perror("getcwd() error\n");
        exit(errno);
   }
   //get username
@@ -25,7 +25,7 @@ void displayPrompt(char *prompt, int err) {
   //get hostname
   char hostname[256];
   if (gethostname(hostname, sizeof(hostname)) == -1) {
-    perror("error getting host name");
+    perror("error getting host name\n");
     exit(errno);
   }
   //display prompt
