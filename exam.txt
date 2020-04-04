@@ -1,0 +1,154 @@
+
+Name: Jaime Danguillecourt
+
+NYU Net ID: jd3846
+
+Affirmation: Type the contents of the affirmation below, with your name:
+I, Jaime Danguillecourt, affirm that I have complete the exam completely on my own without consulting outside resources. I have followed the required rules. I understand that violating any of these rules would represent academic dishonesty.
+
+Multiple Choice: Write the letter of your choice.
+
+1) i
+
+2) c (if end of file nothing to read)
+
+3) b
+
+4) b
+
+5) b
+
+6) d
+
+
+Short Answer
+
+7) C provides the call to realloc which allows us to provide a pointer to memory allocated in the heap, and returns a pointer to allocated memory on the heap of the new disired size we want. The nice thing about realloc is that it will handle freeing the original heap space that we had allocated. In C++ we have to free the space we have and request more space using the new keyword.
+Realloc could possible also preform optimizations such as extending memory space allocated (if possible) instead of freeing and remapping a whole new space, though I am not sure if it can actually do that.
+
+8) (flag & mask) & mask
+
+
+9) kill. arguements: signal number, process to send signal too
+   returns -1 on failure
+
+10)
+int foo() {
+  static int i = 16;
+  i++;
+  return i;
+}
+
+11) The umask is being applied to all files created.
+The umask is an octal number that is set by the user (I believe it might default to 0022 if not set) that substracts itself from the permisions of files created. In this case, 022, will subtract 2 from group and all perms. This stops groups and all from writting or executing created files. Usually to get around this we chmod the file after creating it.
+
+12)
+
+  a) less overhead, no stack frames needed to be created
+
+  b) if you need to pass its address? (using it as a fucntion pointer)?
+
+13)
+
+  a) set-user-id bit is a bit that when set gives the executing user the permissions of the owner of the file when executing that program. for example, if a root program has the bit set, then when a userexecutes that program it will be executing it as root, which is probably needed for normal execution.
+
+  b) the sticky bit is a bit that when set means that only the owner of the file has permissions to delete the file. this is important because usually file deletion is dependent upon the permissions of the folder the file is in. the sticky bit is typically used when place things in /tmp so only the user can delete the file placed in /tmp but other can still access. This holds true for both files and directories.
+
+     So if a folder in /tmp has the sticky bit set, that folder cant be dleted anyone else except the owner, and the same holds true for all the files inside it. (i assume setting the sticky bit for a folder will set it for everything inside?)
+
+14)
+
+  a) symbolic links are so important because its the only way to create links accross partitions. this is because hardlinks point to inode numbers, and inode numbers are unique for each partition
+
+  b) symbolic links are a "mapping" between a filename (symlink name) and a filepath. It is implemented by having an inode that points to a block holding the filepath to which the symlink points to. however, if the filepath is short enough, the file name can often be stored directly in the inode. This optimization allows for no disk blocks to be used for the symlink
+
+  symlinks and hardlinks are made with the ln command!
+
+15) find / -name "*foo*" 2> /dev/null
+    (sudo helps if you dont want to bump into issues w/ perms)
+
+16)
+void foo(char *(*fPtr)(int)) {
+  char *notNeeded = (*fptr)(42);
+}
+
+17)
+lseek(fd, -5, _END);
+char buf[5];
+int count = read(fd, buf, 5);
+if (count == -1) {
+  perror("read error");
+  exit(errno);
+}
+
+Longer Code Answers
+
+18)
+extern char **environ;
+char *myGetEnv(char *k) {
+  char *val;
+   for (int i=0; environ[i] != NULL; i++) {
+      val = malloc(sizeof(strlen(environ[i])+1));
+      strcpy(environ[i], val);
+      strtok(val, "=");
+      if (strcmp(val, k) == 0) {
+        return strtok(NULL, "=");
+      }
+      free(val);
+   }
+   return NULL;
+}
+
+
+19)
+
+int main(int argc, char *argv[]) {
+  int id;
+  int i;
+  int fd[2];
+  pipe(fd);
+  dup2(fd[0], 0) //set stdin as reading end of pipe
+
+  for (i = 0; i < 10; i++) {
+    id = fork();
+    if (id==0) { //child
+      if(close(fd[1]) == -1) {perror("close failed");exit(errno);}
+      break;
+    } else if (id == -1) {perror("fork failed");exit(errno);}
+  }
+
+  if (id == 0) { //child
+    char *iStr = num2str(i); //made up function
+    char *prog_name = strcat("prog", iStr);
+    if (execlp(prog_name, NULL)== -1) {perror("exec failed");_exit(errno);}
+
+  } else { //parent
+    char *c = "a";
+    for (i=0; i < 26; i++) {
+      if (write(fd[1], c, 1) == -1) {perror("write failed");exit(errno);}
+      c[0]++;
+    }
+    if (close(fd[1]) == -1) {perror("close failed");exit(errno);}
+    if (close(fd[0]) == -1) {perror("close failed");exit(errno);}
+
+    int pid, stat;
+    for (i = 0; i < 10; i++) {
+      pid = wait(&stat);
+      //contents of stat:
+      //first 8 bits are exit status
+      //9th is if signal caused core dump
+      //last 7 is signal num
+      //exit status 128 = exit by signal
+      printf("child id: %d ", pid);
+      if ((stat & 0b1000000000000000) & stat) { //exited by signal
+        int signalNum = stat & 0b0000000001111111
+        printf("exited by signal: %d\n", signalNum);
+      } else { //exited normal
+        int exitCode = (stat & 0b1000000000000000) >> 8
+        printf("exit code: %d\n", exitCode);
+      }
+    }
+ }
+  return 0;
+}
+

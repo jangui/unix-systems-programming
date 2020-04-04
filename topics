@@ -1,0 +1,522 @@
+### C basics ###
+snprintf sprintf
+# Misc
+-argv terminated by null pointer
+  -argc not really needed
+
+#String Operations
+strcpy / strncpy
+  -string.h
+  -char *strcpy(char *dest, const char *src);
+  -char *strncpy(char *dest, const char *src, size_t n);
+
+strcmp / strncmp
+  -string.h
+  -int strcmp(const char *s1, const char *s2);
+  -int strncmp(const char *s1, const char *s2, size_t n);
+  -returns 0 is strings equal
+
+memset
+  -string.h
+  -void *memset(void *s, int c, size_t n);
+    -fill first n bytes of mem pointed to by s with constant byte c
+
+strtol
+  -stdlib.h
+  -long int strtol(const char *nptr, char **endptr, int base);
+    -returns long int of given base from given string (nptr)
+      -if extra stuff in string (that inst an int) gets stored in endptr
+      -on error sets errno to EINVAL or ERANGE
+
+strtok
+
+# Memory Management
+malloc
+  - stdlib.h
+  - void *malloc(size_t size);
+  -returns ptr to heap space (no zero-ing)
+    -returns null ptr on fail
+
+calloc
+  -stdlib.h
+  -void *calloc(size_t numOfItems, size_t sizeOfItems);
+  -returns pointer to 0'd out heap space
+    -returns null ptr on fail
+
+realloc
+  -stdlib.h
+  -void *realloc(void *ptr, size_t size);
+    -pass a ptr poiting to allocated heap space
+  -returns ptr pointing to realloced heap space of size provided
+    -handles free-ing previous space used
+    -returns null ptr on fail
+
+# File IO
+fopen
+fclose
+fwrite
+fread
+getline - include use (free line after loop)
+fseek
+ftell
+snprintf
+sprintf
+fprintf
+
+#Structs
+variables stored consecutively in memory
+
+typedef allows to create an alias to struct name
+
+typedef struct {     or    typedef struct cords {
+  int x;                     int x;
+  int y;                     int y;
+} cords;                    } cords;
+
+^you can now use "cords" for these structs^
+difference is first one is not named, second is named "struct cords"
+
+#Parameter Passing
+every parameter is passed by value!
+to modify things, pass a pointer!
+for large structs, pass a pointer to avoid copying
+
+#Passing Functions as parameter
+-Use Function pointers!
+ex:
+//define function
+int *foo(int *ptr1, int *ptr2);
+
+//define function pointer
+int *(*fPtr)(int*,int*)
+
+//assign function pointer
+fPtr = &foo;
+
+//use function pointer
+int a, b; // or int a = 0, b = 0;
+a = b = 0;
+
+int *ptr1 = &a;
+int *ptr2 = &b;
+int *i = (*fPtr)(ptr1, ptr2);
+
+//pass function pointer to function
+int bar(int a, int b);
+
+void doFunc(int (*fPtr)(int, int), int *i) {
+    *i = (*fPtr)(2, 3);
+}
+
+int (*fPtr)(int, int) = &bar;
+
+int *i;
+doFunc(fPtr, i);
+
+#Variable Length Parameter Lists
+
+#Passing Arrays 
+
+# Extern & Static Variables
+extern
+-an "external" variable 
+  -a global variable from another file
+  -using extern allows you to declare that var in your program
+    -you can then modify that global as you please
+-ex: environ
+
+static
+-local variables that are not stored on the stack, but in the data segment
+  -scope is not global! but within func acts like global
+-allows to be modified from within function multiple times on seperate function calls
+-initialization defaults setting them to 0
+  -must be initizialized but constant literal
+-ex: strtok
+  -uses string passed as static var
+  -continously keeps parsing string as func gets called
+
+#Errno
+-include <errno.h>
+-int that is set after an error occurs to error code produced
+
+#Macros
+-copy paste done at precompiler stage
+-copy paste nature can cause errors
+  -ex: define square(x)  (x)*(x)
+    -square(++a) = (++a) * (++a)
+      -increment happens twice
+
+# Environment Variables
+array of C strings
+VAR=val
+
+how to get environment vars?
+  1. #include <stdio.h>
+  2. extern char **environ;
+
+where do the env vars live in the programs memory?
+  on top of user space
+    right above stack
+  gets copied from program which exec'd
+
+# Long Jumps
+setjmp - this is a macro!
+if (setjmp) {
+  back from a long jump
+} else {
+  normal execution
+}
+longjmp
+
+#### Processes ####
+what is a process?
+-a program in execution
+  -PCB
+    -struct for storing state of regs when context switching
+  -memory
+    -virual memory kept by page tables
+      -page tables cached by TLB
+
+memory layout of process:
+High Address  ------------ kernal space
+              ------------ userspace
+              environment
+              stack
+              heap
+              .bss  (unitizialied globals & static vars)
+              .data (initialized global & static vars)
+              .text (code)
+Low Address   ------------
+
+(.bss is for uinitialized globals and statics because its 0'd out)
+
+exec family
+  -execv: vector provided
+  -execl: individual args provided as seperate args
+  -options:
+    -e = replace env
+    -p = full path not required
+
+fork
+  -returns child pid to parent, 0 for child
+
+fork - COPY ON WRITE
+  -child points to parents pagetable & makes them readonly
+  -when you write to a readonly page, causes error
+  -OS tracks previously writtable pages
+    -writting to previously written page creates writtable copy for parents and child
+
+fork - execution
+  -parent or child go first?
+  -args for parent first:
+    -save a context switch
+    -cache doesnt get blown
+  -args for child first
+    -most likely will be the process doing the work
+wait
+  -waits for any child to finish
+  -returns 16 bits
+    -first 8 = exit code of child
+    -9th = set if signal caused core dump when exiting
+      -exit code 128 if exited by signal
+    -last 7 = signal num causing exit 
+
+note if exit status not 128, last 8 bits are irrelevant
+
+waitpid
+  -wait on particular child
+  -w/ option no hang, won't block if proc still running
+
+exit
+  -exit program, pass exit code
+
+_exit
+  -exits program immediatly!
+  -used when child program's exec fails
+    -we want an immediate exit, no signal handling ect
+      -normal exit does some graceful exiting that might no be desired
+
+#exit status
+exit status
+-int return by program reporting how it terminated
+  -0 = success
+  -[1-255] = error
+  -128 = exit bcs signal
+
+-produced by:
+  -main returning 0
+  -calling exit(exitCode) 
+  -kill signal
+  
+#Orphan Processes
+-when parent process exits before child, child is orphaned
+  -child gets adopted by init
+  -init is on infinite loop calling wait()
+
+#Zombie Processes
+-process that has finished, by has not been waiting on by parent
+  -if parent finishes proc gets adopted by init and waited for (cleaned up)
+
+#### UNIX I/O ####
+syscalls:
+  read
+  write
+  open
+  close 
+  lseek(fd, option, offset) - options: SEEK_SET, _CUR, _END, _START
+  unlink
+  fdopen - returns C file struct from unix fd
+  fileno - returns unix fd from C file pointer (streams only)
+
+fcntl
+  -change flags for files
+  -usage
+    -fcntl get flags
+    -modify flags
+    -fcntl set flags
+  -some flags are only for streams
+    -O_NONBLOCK
+
+# File System
+file types:
+  directory
+  symlink
+  everything (hardlinks)
+  i/o devices
+  streams
+  sockets
+
+Getting File Info
+  stat
+    -returns inode struct of file
+      -if sysmlink returns inode of file symlink points to
+  lstat
+    -returns inode struct of file
+      -if symlink returns inode for that symlink
+
+Hardlink vs Softlinks
+  -Hardlink
+    -name -> inode num
+    -cant have hardlink to dir
+      -allows for cycles in filesystem
+    -no hardlink accross partitions
+      -bcs inode num unique to partition
+  -Softlink / Symlink
+    -name -> file path
+    -not all symlinks use disk blocks
+      -if path is short, info can be stored in sysmlinks inode
+        -technically space is used for the inode but that isnt counted
+          -inodes aren't created, theres a finite set anyway
+    
+
+directories
+  -mapping of filenames to inode numbers
+  -empty directory contains "." and ".."
+    -"." and ".." are hardlinks
+  -directory permisions
+    -decide who can delete from dir
+      -if file's sticky bit set, file write perms also needed for deletion
+        -useful when putting files in /tmp
+
+Opening & Reading Directories (dirent.h)
+  DIR*
+  direntp
+  opendir
+  closedir
+  readdir - before readdir set errno to 0 and check val after
+            -returns null on end of read and error
+  rewinddir
+
+inodes
+  -data structure used to keep track of files in disk
+  -structure:
+    -file metadata:
+      -mode
+      -owner
+      -size
+      -time stamps
+    -direct blocks
+      -pointers to blocks on disk
+    -indirect blocks
+      -pointers to block holding direct blocks pointers
+    -double indirect blocks
+      -pointers to blocks holding pointers to indirect blocks
+
+Holes
+  what? how to create?
+  -when you write to start of file, seek much further and write again
+  -inode structure w/ hole:
+    -pointer to block with inital data
+    -null block pointers
+    -pointer to block with rest of data
+  -reading a hole
+    -treated as all 0's
+  -copy a file with hole
+    -file that gets created gets blocks filled with 0 were hole was
+
+set-user-id bit
+  -if set: perms of owner of program are yours during execution
+    -ex: if root program has get_uid set, you are root while executing it
+
+umask
+  -permisions (in octal) that are disable for *files created*
+  -must be set by user
+  -works by subtracting mask from permissions 
+    -ex: 022 (doesn't allow write or execute from group or all)
+
+#Special Files
+/dev/null
+  -place to dump data and have it disapeer
+    -ex: redirrect stderr to /dev/null
+  -produces no output
+
+/dev/zero
+  -place to dump data
+  -produces continous stream of null bytes
+
+# Pipes
+what are they?
+  -array of 2 file descriptors
+    -elem 0 for reading
+    -elem 1 for writting
+  -implementation:
+    -pipe is a bounded buffer (shared mem)
+      -reading clears up things that have been written to
+
+reading & writting
+  -writting
+    -no one is reading & buffer fills -> write blocks
+    -if no reading ends are open
+      -sigpipe signal sent
+        -if sigpipe is handled / ignored, write fails
+          -write returns -1, errno set to EPIPE
+    -small writes happen atomically
+      -size of small writes difined it limits.h
+        -pipe_buf (*note not size of buf!)
+    -when done writting close writting end
+      -reader will know when writting is finished (wont block)
+  -reading
+    -nothing is written -> block
+    -no writting ends open -> read hits "end" of input (returns 0)
+    -if not reading from pipe, close reading end
+
+how to create a pipe?
+pipes w/ children
+pipe()
+
+w/ process
+popen
+pclose
+
+what are they used for?
+-communication
+-synchronization
+  -parent wants all children to start executing at same time
+    -parent creates n children that block waiting to read 1 byte from pipe
+    -once all children are created parent write n bytes to pipe
+
+fcntrl & pipes
+  -can set reads to be nonblocking
+    -when nothing to be read, nonblock reads return error (-1)
+  -read whatever is at pipe
+    -100 bytes expected, only 37 in pipe -> reads 37 bytes, returning count
+  -writting ends are all close -> read returns 0
+
+# IO redirection
+have child change their fd's for stdin and stdout
+
+dup - duplicates given fd to lowest spot
+dup2 - duplicates given fd to desired spot
+  -handles closing fd at desired spot
+remember to close original fd!
+
+openfile table
+-table with info about where in file we're pointing at
+-tables entries can be shared by parent and children
+  -shared file ptr
+-file can be open by many processes (different openfile tbl entry)
+
+#### Signals ####
+sending a signal from command line
+  -kill
+    -kill -l -> lists all signals
+    -kill -SIGNAL process_id
+
+sending a signal from code
+raise - send signal to yourself
+signal - returns proc sig handler or SIGERROR on fail
+
+Signal disposition / handeling signals
+SIG_IGN, SIG_DEF, SIG_ERR (ints casted to func pointers void(*handler)(int))
+  -because handler has to be function
+default
+ignore
+(block)
+
+-exec doesnt change disposition
+  -if we where handling, we keep handling, but now w/ default
+  -if we werer ignoring we keep ignoring
+
+-sigprocmask to block / unblock set of signals
+  -pass a sigset
+  -sigset modified thru function calls
+
+use sigaction instead of signal!
+-doesnt lose signals
+-standerized edge cases
+  -handling signals while handling signal
+  -doesnt set disposition back to default when done
+-has options
+  -if slow IO call intr by signal, restart it
+  -allows to pass a sigset to block while hanbdling a signal
+
+**sigkill can't be blocked, handled or ignored
+**no signal 0, but can be used to see if process is running
+
+#### Unix Command Line ####
+#basic commands
+find, ls, env, du
+
+#globbing vs regular expressions
+globbing        
+* = any and any amount of chars
+? = any char (just one) 
+[a-z] = any char in range
+
+regex
+. = any char (just one)
+? = do I have a thing before or not
+* = 0 or more of thing before
++ = 1 or more of thing before
+^ *$ = line w/ nothing or full of spaces
+[a-z] = one char that is in range
+[0-9]{n} = n ocurrences of vals in range
+[0-9]{n, m} = n-m inclusive occurences of pattern
+[0-9]{n,} = atleast n occurences
+
+#I/O redirection & piping
+> = redirect output to file (create if doesnt exits, overwrite if does)
+>> = redrect output to file (create if doensnt exits, append if does)
+2> = redirect fd 2 (stderr) to file (overwrite)
+< = direct input from LHS from stdin to RHS
+| = output from LHS is input for RHS
+
+#builtins shell functions
+-why?
+  -cant be a seperate process, needs to operate on current proccess
+  -ex: cd, exit
+
+###EXAM 1 ABOVE THIS POINT
+### Handling multiple inputs ###
+polling
+asynchronus IO
+blocking read (select)
+threads
+
+### Basic Network Programming ###
+
+### FIFO's ###
+
+### Buffering ###
+
+### Threads ###
