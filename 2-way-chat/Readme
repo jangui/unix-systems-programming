@@ -1,0 +1,8 @@
+2 way chat between client and server.
+
+defaults to localhost on port 1337.
+
+Does not resolve hostnames! IP addresses are requiered.
+
+To disconnect from someone while chatting, send "/exit".
+If someone disconnects unexpectedly, behavior is undefined.
