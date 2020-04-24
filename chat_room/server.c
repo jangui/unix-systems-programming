@@ -12,12 +12,16 @@
 #include "clientList.h"      // clientVector, MAXCONS
 #include "clientHandling.h"  // clientCount, clientCountMutex
                              // client_handler, establishConnection, clientHandlerArgs
+#include "msgQueue.h"
 
 #define PORT 1337        // default port
 #define LISTENQ 10       // max size for connection queue
 #define MAXCONS 3        // max numbers of connections
+#define MAXQ 3
 
 pthread_mutex_t connlock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condc = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condp = PTHREAD_COND_INITIALIZER;
 
 // usage: ./server <PORT>
 int checkUsage(int argc, char *argv[]) {
@@ -61,21 +65,42 @@ int main(int argc, char *argv[]) {
   //listen
   listen(socketfd, LISTENQ);
 
-   
+  //create shared data structures
+  struct msgQ *queue = initQ(MAXQ);
   struct clientList *clients = initClientList(MAXCONS);
+
+  //setup args for queue handler (consumer)
+  struct queueHandlerArgs *args = malloc(sizeof(struct queueHandlerArgs));
+  if (args == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  args->queue = queue;
+  args->connlock = &connlock;
+  args->clients = clients;
+
+  //start consumer thread
+  pthread_t tid_consumer;
+  if (pthread_create(&tid_consumer, NULL, queue_handler, (void*)args) < 0) {
+    perror("error making thread");
+    exit(1);
+  }
 
   int connfd;
   while (connfd = accept(socketfd, NULL, NULL)) { 
 
-    //setup args for client handler
+    //setup args for client handler (producer)
     struct clientHandlerArgs *args = malloc(sizeof(struct clientHandlerArgs));
     if (args == NULL) {
       perror("malloc failed");
       exit(1);
     }
-    args->fd = connfd;
+    args->queue = queue;
     args->connlock = &connlock;
     args->clients = clients;
+    int *client_fd = malloc(sizeof(int));
+    *client_fd = connfd;
+    args->fd = client_fd;
 
     //start client handler thread
     pthread_t tid;

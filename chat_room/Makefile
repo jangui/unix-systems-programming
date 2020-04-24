@@ -1,7 +1,7 @@
 all: server client
 
-server: server.o clientList.o clientHandling.o input.o
-	gcc server.o clientList.o clientHandling.o input.o -pthread -o server -Wall
+server: server.o clientList.o clientHandling.o input.o msgQueue.o
+	gcc server.o clientList.o clientHandling.o input.o msgQueue.o -pthread -o server -Wall
 
 client: client.o input.o
 	gcc client.o input.o -o client -Wall
@@ -21,6 +21,9 @@ clientList.o: clientList.c clientList.h
 clientHandling.o: clientHandling.c clientHandling.h
 	gcc -c clientHandling.c
 
+msgQueue.o: msgQueue.c msgQueue.h
+	gcc -c msgQueue.c
+
 clean:
-	rm -f server client server.o client.o input.o clientList.o clientHandling.o
+	rm -f server client server.o client.o input.o clientList.o clientHandling.o msgQueue.o
 

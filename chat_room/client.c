@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
   fflush(stdout);
   //check if server let us join chat room
   joinChatRoom(connfd);
-  printf("joined chatroom");
+  printf("joined chatroom\n");
   fflush(stdout);
 
   //setup set for pselect
@@ -133,6 +133,9 @@ int main(int argc, char* argv[]) {
       }
       //check if received exit from server
       if (strcmp(recvline, "/exit") == 0) break;
+      //else print line
+      printf("%s", recvline);
+      fflush(stdout);
     }
   }
   close(connfd);

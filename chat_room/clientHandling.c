@@ -10,6 +10,7 @@
 #include "clientHandling.h" // cliendHandlerArgs
 #include "clientList.h"     // clientList, client, clientAppend, clientRemove
 #include "input.h"
+#include "msgQueue.h"
 
 #define MAXNAME 30    //TODO make this global?
 #define MAXMSG 4096
@@ -47,10 +48,9 @@ int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mut
     response = "OKAY";
     if (sendLine(connfd, response) == -1) {
       perror("failed to write to socket"); 
-      free(response); response = NULL;
       return -1;
     }
-    free(response); response = NULL;
+    printf("%s joined chatroom", name);
     return 0;
 }
 
@@ -81,18 +81,20 @@ void sendGreet(int fd, int onlineCount, char **names) {
     strcat(greet, " ");
     ptr++;
   }
+  printf("greet: %s\n", greet);
+  fflush(stdout);
   sendLine(fd, greet);
   free(greet); greet = NULL;
   return;
 }
 
-void appendName(char *name, char *message) {
-  char *n2 = malloc(sizeof(char*) * strlen(name)+2);
-  strcpy(n2, name);
-  strcat(n2, ": ");
-  message = realloc(message, sizeof(char*) * (strlen(n2)+strlen(message)));
-  strcat(message, n2);
-  free(n2); n2 = NULL;
+char *appendName(char *name, char *message) {
+  char *msg = malloc(sizeof(char*) * strlen(name)+2);
+  strcpy(msg, name);
+  strcat(msg, ": ");
+  msg = realloc(msg, sizeof(char*) * (strlen(msg)+strlen(message)));
+  strcat(msg, message);
+  return msg;
 }
 
 void *client_handler(void *a) {
@@ -104,35 +106,84 @@ void *client_handler(void *a) {
   //get name from client
   printf("waiting for name...");
   fflush(stdout);
-  char *name = recvLine(args->fd, MAXNAME);
+  char *name = recvLine(*(args->fd), MAXNAME);
   printf("%s attempting connection\n", name);
   fflush(stdout);
 
-  int status = joinChatRoom(name, args->fd, args->clients, args->connlock);
+  int status = joinChatRoom(name, *(args->fd), args->clients, args->connlock);
   if (status == -1) {
     //unable to join chatroom
+    printf("%s rejected from chat room", name);
+    fflush(stdout);
     free(a); a = NULL;
     free(name); name = NULL;
     return NULL;
   }
+  printf("%s joined chat room\n", name);
+  fflush(stdout);
 
   //get name of online users and send greet
   int onlineCount;
   char **names = getClients(args->clients, &onlineCount);
-  sendGreet(args->fd, onlineCount, names);
+  sendGreet(*(args->fd), onlineCount, names);
   free(names);
+  printf("greet sent to %s\n", name);
+  fflush(stdout);
   
   char *message;
   for (;;) {
-    message = recvLine(args->fd, MAXMSG); 
-    appendName(name, message);
-    //add message to queue
-    free(message); message = NULL;
+    message = recvLine(*(args->fd), MAXMSG); 
+    if (strcmp(message, "/exit") == 0) {
+      free(message); message = NULL; 
+      break;
+    }
+    char *newMsg = appendName(name, message);
+    free(message), message = NULL;
+    printf("%s\n", newMsg);
+    fflush(stdout);
+    enqueue(args->queue, newMsg); //msg gets free'd in dequeue
+    //free(newMsg); newMsg = NULL;
   }
 
-  leaveChatRoom(name, args->fd, args->clients, args->connlock);
+  printf("%s left\n", name);
+  fflush(stdout);
+
+  leaveChatRoom(name, *(args->fd), args->clients, args->connlock);
+  //TODO add "left message to queue"
+  printf("%s left\n", name);
+  fflush(stdout);
   free(name); name = NULL;
+  close(*(args->fd));
+  free(args->fd); args->fd = NULL;
   free(a); a = NULL;
   return NULL;
 }
 
+void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
+  pthread_mutex_lock(connlock);
+  struct client **ptr = clients->lst;
+  int count = 0;
+  for (int i = 0; i < clients->maxSize; i++) {
+    //if we've messaged all clients no need to iterate over whole list
+    if (count == clients->s) break;
+
+    //send message to each client
+    if (*ptr != NULL) {
+      sendLine((*ptr)->fd, msg);
+      count++;
+    }
+    ptr++;
+  }
+  pthread_mutex_unlock(connlock);
+}
+
+void *queue_handler(void *a) {
+  struct queueHandlerArgs *args = (struct queueHandlerArgs *) a;
+
+  char *msg;
+  for (;;) {
+    msg = dequeue(args->queue);
+    sendAll(msg, args->clients, args->connlock);
+    free(msg); msg = NULL;
+  }
+}
