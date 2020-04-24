@@ -1,0 +1,31 @@
+A simple chat room implementation.
+Server hosts chatroom and multiple clients can connect.
+
+Server Usage:
+./server <PORT>
+
+Client Usage:
+./client name <IPADDR> <PORT>
+
+If not provided, PORT and IPADDR will default to values in defaults.h
+
+Each client must have a unique name in order to join the chat room.
+Server manages each client with a unique thread. 
+
+Clients can exit chat room sending "/exit"
+
+Files:
+  -server.c
+    -code for server
+
+  -client.c
+    -code for client
+
+  -defaults.h
+    -macros w/ default values
+
+  -input.h & input.c
+    -functions for getting input from stdin and from socket
+
+  -clientList.h & clientList.c
+    -code for clientList struct and clientList vector

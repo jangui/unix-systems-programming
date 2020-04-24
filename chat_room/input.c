@@ -2,13 +2,26 @@
 #include <errno.h>  // errno
 #include <string.h> // strtok
 #include <unistd.h> // read
-#include <stdio.h>  // printf, perror, fprintf
+#include <stdio.h>  // printf, perror, fprintf, fputs, fflush, stdout
 #include <string.h> // strtok
-#include "input.h"
 
-char *getLine() {
+
+char *recvLine(int fd, int maxline) {
+  int n;
+  char *recvline = malloc(sizeof(char*)*maxline+1);
+  recvline[maxline] = '\0';
+  if ((n = read(fd, recvline, maxline)) == -1) {
+    perror("failed to read from socket");
+    return NULL;
+  }
+  recvline[n] = '\0';
+  return recvline;
+}
+
+//get line from stdin
+char *getLine(int maxline) {
   //malloc char * which we will return with input from stdin
-  char *input = malloc((sizeof(char) * MAXLINE));
+  char *input = malloc((sizeof(char) * maxline));
   if (input == NULL) {perror("malloc failed\n");exit(errno);}
 
   //read a character at a time
@@ -17,10 +30,10 @@ char *getLine() {
   while (readFlag > 0) {
    pos++;
 
-   //if reading more than MAXLINE, fail
-   if (pos > MAXLINE) {
+   //if reading more than maxline, fail
+   if (pos > maxline) {
      fprintf(stderr, "error: message length too long ");
-     fprintf(stderr, "max length: %d\n", MAXLINE);
+     fprintf(stderr, "max length: %d\n", maxline);
      exit(1);
    }
 
@@ -37,4 +50,10 @@ char *getLine() {
     exit(errno);
   }
 }
-
+int sendLine(int fd, char *msg) {
+    if (write(fd, msg, strlen(msg)) < 0) {
+      perror("failed to write to socket");
+      return -1;
+    }
+    return 0;
+}

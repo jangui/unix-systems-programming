@@ -1,106 +1,45 @@
-#include <unistd.h>       // close
-#include <stdio.h>        // fprint, stderr
-#include <stdlib.h>       // exit
-#include <string.h>       // memset, strlen
-#include <errno.h>        // errno
+#include <stdio.h>        // printf, fprintf, stderr
+#include <stdlib.h>       // strtol, exit
 #include <netinet/in.h>   // servaddr, INADDR_ANY, htons, htonl
-#include <sys/select.h>   // select, fd_set, FD_ZERO, FD_SET
-#include <sys/socket.h>   // socket, AF_INET, SOCK_STREAM
-                          // bind, liste, accept, send, recv
+#include <sys/socket.h>   // socket, bind, listen, accpet, AF_INET
+                          // SOCK_STREAM
+#include <errno.h>        // errno
+#include <string.h>       // memset
+#include <pthread.h>      // pthread_t, pthread_create, pthread_mutex_lock
+                          // pthread_mutex_unlock
+#include <unistd.h>       // close
 
-#include "input.h"        // getLine
+#include "clientList.h"      // clientVector, MAXCONS
+#include "clientHandling.h"  // clientCount, clientCountMutex
+                             // client_handler, establishConnection, clientHandlerArgs
 
-#define MAXNAME    30     // max length of name
-#define PORT       1337   // default port 
-#define LISTENQ    10     // maximum q'd connections
-#define TIMEOUT    30     // timeout time for select
+#define PORT 1337        // default port
+#define LISTENQ 10       // max size for connection queue
+#define MAXCONS 3        // max numbers of connections
 
-//check usage and setup default vals
-void usage(int argc, char *argv[], int *port) {
-  //usage check
-  if (argc < 2 || argc > 3) {
-    fprintf(stderr, "usage: %s Name <Port>\n", argv[0]);
-    exit(errno);
-  }
-  if (argc == 3) {
-    *port = strtol(argv[2], &argv[2], 10);
-  } else {
-    *port = PORT; 
-  }
-}
+pthread_mutex_t connlock = PTHREAD_MUTEX_INITIALIZER;
 
-void recvLine(char *clientName, int connfd, char recvline[]) {
-  int n;
-  //readline from client & print
-  printf("%s: ", clientName);
-  if ((n = read(connfd, recvline, MAXLINE)) == -1) {
-    perror("failed to read from socket");
-    exit(errno);
-  }
-  recvline[n] = '\0';
-  if (fputs(recvline, stdout) == EOF) {
-    fprintf(stderr,"fputs Error\n");
-    exit(errno);
-  }
-  printf("\n");
-  fflush(stdout);
-}
+// usage: ./server <PORT>
+int checkUsage(int argc, char *argv[]) {
+  if (argc == 1) return PORT;
 
-//send message to 
-void sendMsg(char **message, int connfd) {
-  *message = getLine();
-  if (write(connfd, *message, strlen(*message)) == -1) {
-    perror("fail to write to socket");
-    exit(errno);
-  }
-}
-
-//send "/exit" on timeout
-void timeoutExit(int connfd) {
-  if (write(connfd, "/exit", strlen("/exit")) == -1) {
-    perror("fail to write to socket");
-    exit(errno);
-  }
-  fprintf(stderr, "timeout\n");
-  exit(2);
-}
-
-//do setup w/ client for chat
-void handshake(int connfd, char clientName[], char *name) {
-  int n;
-  //receive client's name
-  printf("Receiving name from client...\n");
-  if ((n = read(connfd, clientName, MAXNAME)) == -1) {
-      fprintf(stderr, "read error\n");
-      exit(errno);
-  }
-  clientName[n] = '\0';
-
-  char *response;
-  if (strcmp(clientName, "server") == 0) {
-    response = "NO"; 
-  } else {
-    response = "OK"; 
-  }
-
-  //send response to client
-  printf("Sending client our name...\n");
-  if (write(connfd, response, strlen(response)) < 0) {
-    perror("failed to write to socket");
-    exit(errno);
-  } 
-  printf("Response %s sent to %s", response, clientName);
-  if (strcmp(clientName, "server") == 0) {
+  char *endptr;
+  int port = strtol(argv[1], &endptr, 10);
+  if (argv[1] == endptr || argc > 2) {
+    fprintf(stderr, "usage: %s <PORT>\n", argv[0]);
     exit(1);
   }
+
+  if (port < 1024 || port > 65535) {
+    fprintf(stderr, "invalid port\n");
+    exit(1);
+  }
+  return port;
 }
 
-//socket, bind, listen, accept
-int main(int argc, char** argv) {
-  int port;
 
-  //check usage and setup default vals
-  usage(argc, argv, &port);
+int main(int argc, char *argv[]) {
+  int port = checkUsage(argc, argv);
 
   //create socket, ipv4 using tcp
   int socketfd;
@@ -121,54 +60,116 @@ int main(int argc, char** argv) {
 
   //listen
   listen(socketfd, LISTENQ);
-  
-  //setup set for pselect
-  fd_set fds;
-  FD_ZERO(&fds);
-  int fd;
 
-  //continously wait for a connection
-  int connfd, n;
-  char clientName[MAXNAME+1];
-  for (;;) { 
-    //wait for a connection
-    connfd = accept(socketfd, NULL, NULL);
-    printf("Client connecting...\n");
+   
+  struct clientList *clients = initClientList(MAXCONS);
 
-    //setup w/ client for chat
-    handshake(connfd, clientName, argv[1]);
+  int connfd;
+  while (connfd = accept(socketfd, NULL, NULL)) { 
 
-    //chat loop
-    char recvline[MAXLINE + 1];
-    char *message;
-    for (;;) {
-      FD_SET(0, &fds);
-      FD_SET(connfd, &fds);
-
-      fd = select(connfd+1, &fds, NULL, NULL, NULL);
-      
-      if (fd < 0) {perror("select failed");exit(1);}
-      if (fd == 0) timeoutExit(connfd);
-
-      if (FD_ISSET(0, &fds)) {
-        //getLine from stdin & send to client
-        sendMsg(&message, connfd);
-        //check if we sent "/exit"
-        if (strcmp(message, "/exit") == 0) {free(message); break;}
-        free(message);
-      }
-
-      if (FD_ISSET(connfd, &fds)) {
-        //recieve line from client and print
-        recvLine(clientName, connfd, recvline);
-        //check if recieved exit
-        if (strcmp(recvline, "/exit") == 0) break;
-      }
+    //setup args for client handler
+    struct clientHandlerArgs *args = malloc(sizeof(struct clientHandlerArgs));
+    if (args == NULL) {
+      perror("malloc failed");
+      exit(1);
     }
-    printf("Disconnecting.\n\n");
-    fflush(stdout);
-    close(connfd);
+    args->fd = connfd;
+    args->connlock = &connlock;
+    args->clients = clients;
+
+    //start client handler thread
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, client_handler, (void*)args) < 0) {
+      perror("error making thread");
+      exit(1);
+    }
+    
+    printf("handler assigned to client\n");
+
   }
-  close(socketfd);
+
+  if (connfd < 0) {
+    perror("connection failed");
+    exit(1);
+  }
+
   return 0;
 }
+
+/*
+  DESIGN
+
+  other:
+    array for structs of fd and names (2 arrys ? one for fd one for name?)
+      ability to grow / shrink array dynamically
+        arry grows doubles when capacity more than half full
+        halves when 1/8 full
+          might be gaps in arry so careful with copying to new arry
+      add / remove elements from the array based on name
+        add should go into first empty spot
+      lookups based on name
+
+  server should handle sigint or sigquit:
+    lock conns 
+
+
+
+
+  per client thread: (queue producer thread)
+    init w/ client
+      client sends name, we recieve
+        if name taken, req other name
+          lookup by name needed
+      store our name, fd & into struct
+      lock connected collection
+      check if size conn== 0
+        send you're only one here to client
+      else
+        send greet message
+          hello! this is everyone connected:
+      add our info struct to conn collection
+      unlock conn
+
+     while not received /exit:
+        recieve messages
+        lock queue (if space to add) (sleep on condition)
+        add to message to queue
+          -concat our name to message
+        wake up queue consumer thread
+        unlock queue
+
+      if recieved /exit:
+        lock conn
+        remove from conn
+          -remove based on fd
+        unlock conn
+        lock queue (if space to add) (sleep on condition)
+        add "x person left message" to queue
+        unlock queue
+
+        close conn fd
+      
+      thread finishes (lets have it detached)
+
+
+  queue consumer thread:
+    if awaken (ready to consume)
+    lock conns
+    send all messages in queue to all conns
+    unlock conns 
+    sleep on condition var of conns
+
+    
+  clean up thread:
+    inf loop call to join() 
+  
+  or use detached threads
+    when server wants to exit
+      make all threads terminate
+        
+      
+
+
+
+
+*/

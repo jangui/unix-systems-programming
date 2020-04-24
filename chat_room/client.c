@@ -1,5 +1,5 @@
 #include <stdlib.h>         // exit
-#include <stdio.h>          // printf, fputs, fprintf, stderr
+#include <stdio.h>          // printf, fprintf, stderr
 #include <unistd.h>         // close
 #include <string.h>         // memset
 #include <sys/socket.h>     // socket, AF_INET, SOCK_STREAM, send, recv
@@ -8,13 +8,10 @@
 #include <errno.h>          // errno
 #include <sys/select.h>     // select, fd_set, FD_ZERO, FD_SET
 
-#include "input.h"          // getLine
+#include "input.h"          // getLine, recvLine, MAXLINE
 
-#define MAXNAME   30           // max length of name
-#define	BUFFSIZE  8192	       // buffer size for reads and writes 
-#define PORT      1337         // default port to connect to 
-#define IPADDR    "127.0.0.1"  // default ip address to connect to
-#define TIMEOUT   30
+#define PORT 1337
+#define IPADDR "127.0.0.1"
 
 //check usage and setup default vars
 void usage(int argc, char *argv[], char **ipaddr, int *port) {
@@ -36,42 +33,23 @@ void usage(int argc, char *argv[], char **ipaddr, int *port) {
   }
 }
 
-//get message from server & print
-void recvLine(int connfd, char recvline[], int maxline) {
+// establish connection with if there is space
+void joinChatRoom(int connfd) {
   int n;
-  if ((n = read(connfd, recvline, maxline)) == -1) {
-    perror("failed to read from socket");
-    exit(errno);
-  }
-  recvline[n] = '\0';
-  if (fputs(recvline, stdout) == EOF) {
-    fprintf(stderr,"fputs Error\n");
-    exit(errno);
-  }
-  printf("\n");
-  fflush(stdout);
-}
 
-void setName(int connfd, char *name) {
-  //send server our name
-  printf("Sending server our name... \n");
-  if (write(connfd, name, strlen(name)) < 0) {
-    perror("failed to write to socket");
-    exit(errno);
-  }
-  //recieve OK or NO from server
-  //OK means name is available, NO means its in use
-  char response[2];
-  printf("Waiting for server's response...\n");
-  int n;
-  if ((n = read(connfd, response, 2)) < 0) {
-    perror("read error");
-    exit(errno);
-  }
-  response[n] = '\0';
-  if (strcmp(response, "OK") != 0) {
-    printf("Server: Name \"%s\" in use\n", name);
-    printf("Please connect with a different name.\n");
+  //recieve response from server
+  char *response = recvLine(connfd, 5);
+
+  if (strcmp(response, "OKAY") == 0) {
+    printf("Connection Established"); 
+  } else if (strcmp(response, "FULL") == 0) {
+    printf("**Chat room full. Please try again later.**\n");
+    exit(1);
+  } else if (strcmp(response, "NAME") == 0) {
+    printf("Name in use. Please connect again with a different name.\n");
+    exit(1);
+  } else {
+    printf("Failed to connect.\n"); 
     exit(1);
   }
 }
@@ -106,8 +84,20 @@ int main(int argc, char* argv[]) {
     exit(errno);
   }
 
-  //set a valid name with the server
-  setName(connfd, argv[1]);
+  printf("Sending server our name... \n");
+  //sendServer our name
+  if(sendLine(connfd, argv[1]) == -1) {
+    perror("failed to write to socket");
+    exit(1);
+  }
+  printf("Name sent.");
+
+  printf("Attempting to join chatroom...");
+  fflush(stdout);
+  //check if server let us join chat room
+  joinChatRoom(connfd);
+  printf("joined chatroom");
+  fflush(stdout);
 
   //setup set for pselect
   fd_set fds;
@@ -115,7 +105,7 @@ int main(int argc, char* argv[]) {
   int fd;
 
   //once connected, continously send and recieve lines
-  char recvline[MAXLINE + 1];
+  char *recvline;
   char *message;
   for (;;) {
     FD_SET(0, &fds);
@@ -124,35 +114,29 @@ int main(int argc, char* argv[]) {
     fd = select(connfd+1, &fds, NULL, NULL, NULL);
     
     if (fd < 0) {perror("select failed");exit(1);}
-    if (fd == 0) {
-      if (write(connfd, "/exit", strlen("/exit")) == -1) {
-        perror("fail to write to socket");
-        exit(errno);
-      }
-      fprintf(stderr, "timeout\n");exit(2);
-    }
 
     if (FD_ISSET(0, &fds)) {
       //getLine from stdin & send to server
-      message = getLine();
-      if (write(connfd, message, strlen(message)) == -1) {
-        perror("failed to talk to server");
-        exit(errno);
-      }
-      //check if we sent "/exit"
+      message = getLine(MAXLINE);
+      sendLine(connfd, message);
+      //check if we sent "/exit", if so break out of loop
       if (strcmp(message, "/exit") == 0) {free(message); break;}
-      free(message);
+      free(message); message= NULL;
     }
 
     if (FD_ISSET(connfd, &fds)) {
       //receive line from server and print
-      recvLine(connfd, recvline, MAXLINE);
-      //check if received exit
+      recvline = recvLine(connfd, MAXLINE);
+      if(recvline == NULL) {
+         perror("read failed");
+         exit(1);
+      }
+      //check if received exit from server
       if (strcmp(recvline, "/exit") == 0) break;
     }
   }
-  printf("Disconnecting\n");
   close(connfd);
+  printf("Disconected.\n");
   return 0;
 }
 
@@ -181,4 +165,6 @@ int main(int argc, char* argv[]) {
       close fd
       exit
         
+    optional:
+    change getLine to getline regardless of line length
 */
