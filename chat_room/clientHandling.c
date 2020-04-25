@@ -15,11 +15,12 @@
 #define MAXNAME 30    //TODO make this global?
 #define MAXMSG 4096
 
+//TODO check if names don't include substring disconnect, connect, : or space 
+
 void leaveChatRoom(char *name, int connfd, struct clientList *clients, pthread_mutex_t *connlock) {
     pthread_mutex_lock(connlock);
     clientRemove(clients, name);
     pthread_mutex_unlock(connlock);
-    //TODO add "I left message to qeueu"
 }
 
 int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mutex_t *connlock) {
@@ -154,18 +155,20 @@ void *client_handler(void *a) {
   printf("%s joined chat room\n", name);
   fflush(stdout);
 
-  //get name of online users and send greet
+   //get name of online users and send greet
   int onlineCount;
   pthread_mutex_lock(args->connlock);
   char **names = getClients(args->clients, &onlineCount);
   pthread_mutex_unlock(args->connlock);
-  printf("online count: %d\n", onlineCount);
+
+  //send message to client stating who is currently online
   sendGreet(*(args->fd), onlineCount, names, name);
-  free(names);
-  printf("greet sent to %s\n", name);
-  fflush(stdout);
+  sleep(1); //TODO explain this sleep
+
+  //queue message saying we've connected
   if (onlineCount > 1) helloGoodbye(name, args->queue, 0);
 
+  free(names);
   
   char *message;
   for (;;) {

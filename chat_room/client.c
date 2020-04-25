@@ -15,6 +15,7 @@
 
 #define RED   "\x1B[31m"
 #define GRN   "\x1B[32m"
+#define BLU   "\x1B[34m"
 #define RESET "\x1B[0m"
 
 //check usage and setup default vars
@@ -58,13 +59,78 @@ void joinChatRoom(int connfd) {
   }
 }
 
-void displayMessage(char *msg) {
-    //if message comes from server display appropriately
-    
-    //if message from ourselves, don't display
+char *getName(char *msg) {
+  char *name = malloc(sizeof(char*)*(strlen(msg)));
+  if (name == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(name, msg);
+  strtok(name, ":");
+  name = realloc(name, sizeof(char*)*strlen(name));
+  if (name == NULL) {
+    perror("realloc failed");
+    exit(1);
+  }
+  return name;
+}
 
-    printf("%s\n", msg);
-    fflush(stdout);
+void displayServerMsg(char *message, char *name) {
+  //"strip" server name from msg
+  char *serverName = "server: ";
+  int msgLen = strlen(message)-strlen(serverName);
+  char *msg = malloc(sizeof(char*)*msgLen);
+  if (msg == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(msg, message + strlen(serverName));
+
+  //if server sends us message starting w/ our name, we ignore
+  //(message saying we have connected)
+  int len = strlen(name)+1;
+  char *n = malloc(sizeof(char*)*len);
+  //copy start of message received and split by space
+  strncpy(n, msg, len);
+  strtok(n, " ");
+  if (strcmp(n, name) == 0) {
+    printf("ignored message from us\n");
+    free(n); n = NULL;
+    free(msg); msg = NULL;
+    return;
+  }
+  free(n); n = NULL;
+  //we have to do it this way to get around
+  //names that are substrings in other names
+
+
+  //print connection messages in green, disconnect in red
+  // & welcome in blue
+  if (strstr(msg, "disconnected") != NULL) {
+    printf(RED "%s\n" RESET, msg); 
+  } else if (strstr(msg, "connected") != NULL) {
+     printf(GRN "%s\n" RESET, msg); 
+  } else {
+   printf(BLU "%s\n" RESET, msg); 
+  }
+  fflush(stdout);
+  free(msg); msg = NULL;
+
+}
+
+void displayMessage(char *msg, char *ourName) {
+    //if message comes from server display appropriately
+    char *name = getName(msg); 
+    if (strcmp(name, "server") == 0) {
+      displayServerMsg(msg, ourName); 
+    } else if (strcmp(name, ourName) == 0) {
+        //if message from ourselves, ignore
+        ;
+    } else {
+      printf("%s\n", msg);
+      fflush(stdout);
+    }
+    free(name); name = NULL;
 }
 
 int main(int argc, char* argv[]) {
@@ -147,7 +213,7 @@ int main(int argc, char* argv[]) {
       //check if received exit from server
       if (strcmp(recvline, "/exit") == 0) break;
       //else print line
-      displayMessage(recvline);
+      displayMessage(recvline, argv[1]);
       free(recvline); recvline = NULL;
     }
   }
