@@ -13,6 +13,10 @@
 #define PORT 1337
 #define IPADDR "127.0.0.1"
 
+#define RED   "\x1B[31m"
+#define GRN   "\x1B[32m"
+#define RESET "\x1B[0m"
+
 //check usage and setup default vars
 void usage(int argc, char *argv[], char **ipaddr, int *port) {
   //usage check
@@ -38,20 +42,29 @@ void joinChatRoom(int connfd) {
   int n;
 
   //recieve response from server
-  char *response = recvLine(connfd, 5);
+  char *response = recvLine(connfd, 4);
 
   if (strcmp(response, "OKAY") == 0) {
-    printf("Connection Established"); 
+    printf(GRN "Connection Established\n" RESET); 
   } else if (strcmp(response, "FULL") == 0) {
-    printf("**Chat room full. Please try again later.**\n");
+    printf(RED "**Chat room full. Please try again later.**\n");
     exit(1);
   } else if (strcmp(response, "NAME") == 0) {
-    printf("Name in use. Please connect again with a different name.\n");
+    printf(RED "Name in use. Please connect again with a different name.\n");
     exit(1);
   } else {
-    printf("Failed to connect.\n"); 
+    printf(RED "Failed to connect.\n"); 
     exit(1);
   }
+}
+
+void displayMessage(char *msg) {
+    //if message comes from server display appropriately
+    
+    //if message from ourselves, don't display
+
+    printf("%s\n", msg);
+    fflush(stdout);
 }
 
 int main(int argc, char* argv[]) {
@@ -134,32 +147,18 @@ int main(int argc, char* argv[]) {
       //check if received exit from server
       if (strcmp(recvline, "/exit") == 0) break;
       //else print line
-      printf("%s", recvline);
-      fflush(stdout);
+      displayMessage(recvline);
+      free(recvline); recvline = NULL;
     }
   }
   close(connfd);
-  printf("Disconected.\n");
+  printf(RED "Disconected.\n");
   return 0;
 }
 
 /*
-  DESIGN:
-  x  conncet to server
-      loop until name accepted: (done without loop for now)
-  x      send name
-  x      server replies
-  x        rejected
-  x          loop
-  x        accepted
-  x          exit loop
-  x    poll stdin and conn fd for input
-  x      stdin
-  x        recieve message from stdin
-  x        send to server
-  x      conn fd
-          optional) deal with cleanring stdin & reseting it when mssg recv
-  x        print message on screen
+ * TODO
+ * dont print what comes in from stdin
           optional: replace name with you if your the one who sent message
 
      optional:

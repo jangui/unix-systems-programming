@@ -54,14 +54,14 @@ int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mut
     return 0;
 }
 
-void sendGreet(int fd, int onlineCount, char **names) {
+void sendGreet(int fd, int onlineCount, char **names, char *name) { 
   char *greet;
   if (onlineCount == 1) {
-    greet = "Server: Welcome to the chat room. Looks like you're the only one here!"; 
+    greet = "server: Welcome to the chat room. Looks like you're the only one here!"; 
     sendLine(fd, greet);
     return;
   }
-  char *msg = "Server: Welcome to the chat room. Current Members: ";   
+  char *msg = "server: Welcome to the chat room. Current Members: ";   
   greet = malloc(sizeof(char*)*strlen(msg));
   if (greet == NULL) {
     perror("malloc failed");
@@ -72,6 +72,7 @@ void sendGreet(int fd, int onlineCount, char **names) {
   char *members;
   char **ptr = names;
   while(*ptr != NULL) {
+    if (strcmp(*(ptr), name) == 0) {ptr++;continue;} //don't display our own name
     greet = realloc(greet, sizeof(char*)*(strlen(greet)+strlen(*ptr)+1));
     if (greet == NULL) {
       perror("realloc failed");
@@ -90,11 +91,41 @@ void sendGreet(int fd, int onlineCount, char **names) {
 
 char *appendName(char *name, char *message) {
   char *msg = malloc(sizeof(char*) * strlen(name)+2);
+  if (msg == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
   strcpy(msg, name);
   strcat(msg, ": ");
   msg = realloc(msg, sizeof(char*) * (strlen(msg)+strlen(message)));
+  if (msg == NULL) {
+    perror("realloc failed");
+    exit(1);
+  }
   strcat(msg, message);
   return msg;
+}
+
+//send hello or goodbye depending on flag
+void helloGoodbye(char *name, struct msgQ *queue, int flag) {
+  char *server = "server: ";
+  char *msg;
+  if (flag == 0) { 
+    msg = " has connected.";
+  } else {
+    msg = " has disconnected.";
+  }
+  int len = strlen(server)+strlen(name)+strlen(msg);
+  char *helloGoodbye = malloc(sizeof(char*)*(len));
+  if (helloGoodbye == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(helloGoodbye, server);
+  strcat(helloGoodbye, name);
+  strcat(helloGoodbye, msg);
+  enqueue(queue, helloGoodbye);
+  //helloGoodbye will get free'd by consumer thread
 }
 
 void *client_handler(void *a) {
@@ -107,6 +138,7 @@ void *client_handler(void *a) {
   printf("waiting for name...");
   fflush(stdout);
   char *name = recvLine(*(args->fd), MAXNAME);
+  //TODO check if name is server or has : in it.
   printf("%s attempting connection\n", name);
   fflush(stdout);
 
@@ -124,11 +156,16 @@ void *client_handler(void *a) {
 
   //get name of online users and send greet
   int onlineCount;
+  pthread_mutex_lock(args->connlock);
   char **names = getClients(args->clients, &onlineCount);
-  sendGreet(*(args->fd), onlineCount, names);
+  pthread_mutex_unlock(args->connlock);
+  printf("online count: %d\n", onlineCount);
+  sendGreet(*(args->fd), onlineCount, names, name);
   free(names);
   printf("greet sent to %s\n", name);
   fflush(stdout);
+  if (onlineCount > 1) helloGoodbye(name, args->queue, 0);
+
   
   char *message;
   for (;;) {
@@ -149,7 +186,7 @@ void *client_handler(void *a) {
   fflush(stdout);
 
   leaveChatRoom(name, *(args->fd), args->clients, args->connlock);
-  //TODO add "left message to queue"
+  helloGoodbye(name, args->queue, 1);
   printf("%s left\n", name);
   fflush(stdout);
   free(name); name = NULL;

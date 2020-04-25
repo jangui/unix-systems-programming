@@ -107,7 +107,7 @@ char **getClients(struct clientList *clients, int *c) {
     if (*ptr != NULL)  {
       names[count] = (*ptr)->name;
       count++;
-      *c++;
+      (*c)++;
     }
     ptr++;
   }
