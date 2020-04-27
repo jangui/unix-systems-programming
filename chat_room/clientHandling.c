@@ -15,8 +15,7 @@
 #define MAXNAME 30    //TODO make this global?
 #define MAXMSG 4096
 
-//TODO check if names don't include substring disconnect, connect, : or space 
-
+//remove client from connected list
 void leaveChatRoom(char *name, int connfd, struct clientList *clients, pthread_mutex_t *connlock) {
     pthread_mutex_lock(connlock);
     clientRemove(clients, name);
@@ -24,22 +23,18 @@ void leaveChatRoom(char *name, int connfd, struct clientList *clients, pthread_m
 }
 
 int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mutex_t *connlock) {
-    
     //try to add client unless full or name already in use
     pthread_mutex_lock(connlock);
     int status = clientAppend(clients, connfd, name);
     pthread_mutex_unlock(connlock);
 
-    printf("%s status: %d", name, status);
-    fflush(stdout);
-
+    //send response to client based if they cant join or not
     char *response;
     if (status != 0) {
       //JOIN FAILED
       if (status == 1) response = "NAME";
       else if (status == -1) response = "FULL";
-
-      printf("%s\n", response);
+      printf("%s rejected from chat room: %s\n", name, response);
       //report failure
       sendLine(connfd, response);
       return -1;
@@ -51,29 +46,49 @@ int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mut
       perror("failed to write to socket"); 
       return -1;
     }
-    printf("%s joined chatroom", name);
     return 0;
 }
 
-void sendGreet(int fd, int onlineCount, char **names, char *name) { 
+void sendGreet(char *name, int onlineCount, char **names, struct msgQ *queue) { 
+  //send personalized greet if you're the only one in chat room
   char *greet;
   if (onlineCount == 1) {
-    greet = "server: Welcome to the chat room. Looks like you're the only one here!"; 
-    sendLine(fd, greet);
+    char *msg = "server: Welcome to the chat room. Looks like you're the only one here!"; 
+    greet = malloc(sizeof(char*)*(strlen(msg)));
+    if (greet == NULL) {
+      perror("malloc failed");
+      exit(1);
+    }
+    strcpy(greet, msg);
+    enqueue(queue, greet);
+    //greet gets free'd after dequeue
     return;
   }
-  char *msg = "server: Welcome to the chat room. Current Members: ";   
-  greet = malloc(sizeof(char*)*strlen(msg));
+
+  //normal greet
+  //message must be "server:.{name} ... "
+  //formatted so consumer thread only sends it appropriate client
+  char *msg = "server:.";
+  greet = malloc(sizeof(char*)*(strlen(msg)+strlen(name)));
+  if (greet == NULL) {
+    perror("malloc failed");
+    exit(1);
+  } 
+  strcpy(greet, msg);
+  strcat(greet, name);
+  msg = " Welcome to the chat room. Current Members: ";   
+  greet = realloc(greet, sizeof(char*)*(strlen(msg)+strlen(greet)));
   if (greet == NULL) {
     perror("malloc failed");
     exit(1);
   }
-  strcpy(greet, msg);
+  strcat(greet, msg);
 
+  //get online members' names and concate to greet message
   char *members;
   char **ptr = names;
   while(*ptr != NULL) {
-    if (strcmp(*(ptr), name) == 0) {ptr++;continue;} //don't display our own name
+    if (strcmp(*(ptr), name) == 0) {ptr++;continue;} //skip ourselves
     greet = realloc(greet, sizeof(char*)*(strlen(greet)+strlen(*ptr)+1));
     if (greet == NULL) {
       perror("realloc failed");
@@ -83,13 +98,12 @@ void sendGreet(int fd, int onlineCount, char **names, char *name) {
     strcat(greet, " ");
     ptr++;
   }
-  printf("greet: %s\n", greet);
-  fflush(stdout);
-  sendLine(fd, greet);
-  free(greet); greet = NULL;
+  enqueue(queue, greet);
+  //greet free'd after dequeue'd
   return;
 }
 
+//append name + ':' to message
 char *appendName(char *name, char *message) {
   char *msg = malloc(sizeof(char*) * strlen(name)+2);
   if (msg == NULL) {
@@ -133,65 +147,63 @@ void *client_handler(void *a) {
   //detach ourselves
   pthread_detach(pthread_self());
 
+  //TODO put all this into other func
   struct clientHandlerArgs *args = (struct clientHandlerArgs *) a;
 
   //get name from client
-  printf("waiting for name...");
-  fflush(stdout);
+  fprintf(stderr, "Client handler assigned. Waiting for name...\n");
   char *name = recvLine(*(args->fd), MAXNAME);
-  //TODO check if name is server or has : in it.
-  printf("%s attempting connection\n", name);
-  fflush(stdout);
 
+  //attempt to join chat room
   int status = joinChatRoom(name, *(args->fd), args->clients, args->connlock);
   if (status == -1) {
     //unable to join chatroom
-    printf("%s rejected from chat room", name);
-    fflush(stdout);
     free(a); a = NULL;
     free(name); name = NULL;
     return NULL;
   }
-  printf("%s joined chat room\n", name);
-  fflush(stdout);
+  fprintf(stderr, "%s joined the chatroom\n", name);
 
-   //get name of online users and send greet
+  //queue message saying we've connected
+  helloGoodbye(name, args->queue, 0);
+  fprintf(stderr, "Q'ing %s's connection message\n", name);
+  fflush(stderr);
+
+  //get name of online users
   int onlineCount;
   pthread_mutex_lock(args->connlock);
   char **names = getClients(args->clients, &onlineCount);
   pthread_mutex_unlock(args->connlock);
 
-  //send message to client stating who is currently online
-  sendGreet(*(args->fd), onlineCount, names, name);
-  sleep(1); //TODO explain this sleep
+  //queue message for client stating who is currently online
+  //consumer will handle sending messages to correct person
+  sendGreet(name, onlineCount, names, args->queue);
+  free(names); names = NULL;
 
-  //queue message saying we've connected
-  if (onlineCount > 1) helloGoodbye(name, args->queue, 0);
-
-  free(names);
   
+  //recieve messages from client
+  //queue message for chatroom
   char *message;
   for (;;) {
     message = recvLine(*(args->fd), MAXMSG); 
+    
+    //if recieved "/exit" break out of loop
     if (strcmp(message, "/exit") == 0) {
       free(message); message = NULL; 
       break;
     }
+
+    //queue message
     char *newMsg = appendName(name, message);
     free(message), message = NULL;
-    printf("%s\n", newMsg);
-    fflush(stdout);
-    enqueue(args->queue, newMsg); //msg gets free'd in dequeue
-    //free(newMsg); newMsg = NULL;
+    enqueue(args->queue, newMsg); 
+    //msg gets free'd once dequeue'd
   }
 
-  printf("%s left\n", name);
-  fflush(stdout);
-
+  //leave chat room and clean up
   leaveChatRoom(name, *(args->fd), args->clients, args->connlock);
   helloGoodbye(name, args->queue, 1);
-  printf("%s left\n", name);
-  fflush(stdout);
+  fprintf(stderr, "%s left the chatroom\n", name);
   free(name); name = NULL;
   close(*(args->fd));
   free(args->fd); args->fd = NULL;
@@ -206,7 +218,6 @@ void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
   for (int i = 0; i < clients->maxSize; i++) {
     //if we've messaged all clients no need to iterate over whole list
     if (count == clients->s) break;
-
     //send message to each client
     if (*ptr != NULL) {
       sendLine((*ptr)->fd, msg);
@@ -217,13 +228,72 @@ void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
   pthread_mutex_unlock(connlock);
 }
 
+
+//sent message to client if they are connected
+void sendTo(char *name, char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
+  pthread_mutex_lock(connlock);
+  struct client **ptr = clients->lst;
+  int count = 0;
+  for (int i = 0; i < clients->maxSize; i++) {
+    if (*ptr != NULL) {
+      if (strcmp(name, (*ptr)->name) == 0) {
+        sendLine((*ptr)->fd, msg);
+        break;
+      }
+    }
+    ptr++;
+  }
+  pthread_mutex_unlock(connlock);
+}
+
+//find out who personalized message is to
+//if their still connected, send them the message
+void sendOne(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
+  //msg format: "server:.{name} ..."
+  //find out name and fix message for sending
+  char *token = strtok(msg, " "); 
+  char *front = "server:.";
+  char *name = token+strlen(front);
+  char *newFront = "server: ";
+  char *newMsg = malloc(sizeof(char*)*(strlen(newFront)+strlen(msg+strlen(token)+1)+1));
+  if (newMsg == NULL) {
+    perror("malloc failed");
+    exit(1);
+  } 
+  strcpy(newMsg, newFront);
+  strcat(newMsg, msg+strlen(token)+1);
+  fprintf(stderr, "Sending greet to %s\n", name);
+  fflush(stderr);
+  sendTo(name, newMsg, clients, connlock);
+  free(newMsg); newMsg == NULL;
+  //msg gets free'd back in queue handler
+}
+
+//if message starts with "server:." then next word is the name of who to send to
+//else send message to everyone
+void sendCorrectly(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
+  char *name = getName(msg);
+  if (strcmp(name, "server") == 0) {
+    if (*(msg+strlen("server:")) == '.') {
+      //message from server to specific client
+      sendOne(msg, clients, connlock);
+      free(name); name == NULL;
+      return;
+    } 
+  }
+  sendAll(msg, clients, connlock);
+  free(name); name == NULL;
+}
+
+//dequeue message, send to single person or everyone
+//locks and condition vars handled by queue
 void *queue_handler(void *a) {
   struct queueHandlerArgs *args = (struct queueHandlerArgs *) a;
-
   char *msg;
   for (;;) {
     msg = dequeue(args->queue);
-    sendAll(msg, args->clients, args->connlock);
+    sendCorrectly(msg, args->clients, args->connlock);
+    //sendAll(msg, args->clients, args->connlock);
     free(msg); msg = NULL;
   }
 }

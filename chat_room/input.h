@@ -3,3 +3,4 @@
 char *recvLine(int fd, int maxline);
 char *getLine(int maxline);
 int sendLine(int fd, char *msg);
+char *getName(char *msg);

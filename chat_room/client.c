@@ -7,8 +7,11 @@
 #include <netinet/in.h>     // servaddr
 #include <errno.h>          // errno
 #include <sys/select.h>     // select, fd_set, FD_ZERO, FD_SET
+#include <signal.h>
 
 #include "input.h"          // getLine, recvLine, MAXLINE
+
+#define _XOPEN_SOURCE
 
 #define PORT 1337
 #define IPADDR "127.0.0.1"
@@ -17,6 +20,39 @@
 #define GRN   "\x1B[32m"
 #define BLU   "\x1B[34m"
 #define RESET "\x1B[0m"
+
+//need socket fd for signal handler
+int *fdptr = NULL;
+
+//signal handler for sigint
+void safeExit(int signum) {
+  if (fdptr == NULL) {
+    exit(1); 
+  }
+  sendLine(*fdptr, "/exit");
+  printf(RED "Disconnected.\n"); 
+  exit(0);
+}
+
+//names cannot inlcude spaces, periods, or colons.
+//name cannot be "server"
+void validateName(char *name) {
+  int valid = 1;
+  if (strstr("server", name) != NULL) {
+    valid = 0;
+  } else if (strchr(name, '.') != NULL) {
+    valid = 0;
+  } else if (strchr(name, ':') != NULL) {
+    valid = 0;
+  } else if (strchr(name, ' ') != NULL) {
+    valid = 0;
+  }
+  if (valid == 0) {
+    printf(RED "Invalid name. Name cannot be \"server\" or include ");
+    printf("periods, colons or spaces.\n");
+    exit(1);
+  }
+}
 
 //check usage and setup default vars
 void usage(int argc, char *argv[], char **ipaddr, int *port) {
@@ -38,13 +74,10 @@ void usage(int argc, char *argv[], char **ipaddr, int *port) {
   }
 }
 
-// establish connection with if there is space
+// handle response from server for joining chat room
+// if rejected, execution terminates
 void joinChatRoom(int connfd) {
-  int n;
-
-  //recieve response from server
   char *response = recvLine(connfd, 4);
-
   if (strcmp(response, "OKAY") == 0) {
     printf(GRN "Connection Established\n" RESET); 
   } else if (strcmp(response, "FULL") == 0) {
@@ -59,22 +92,7 @@ void joinChatRoom(int connfd) {
   }
 }
 
-char *getName(char *msg) {
-  char *name = malloc(sizeof(char*)*(strlen(msg)));
-  if (name == NULL) {
-    perror("malloc failed");
-    exit(1);
-  }
-  strcpy(name, msg);
-  strtok(name, ":");
-  name = realloc(name, sizeof(char*)*strlen(name));
-  if (name == NULL) {
-    perror("realloc failed");
-    exit(1);
-  }
-  return name;
-}
-
+//displays messages from server appropriately
 void displayServerMsg(char *message, char *name) {
   //"strip" server name from msg
   char *serverName = "server: ";
@@ -90,38 +108,33 @@ void displayServerMsg(char *message, char *name) {
   //(message saying we have connected)
   int len = strlen(name)+1;
   char *n = malloc(sizeof(char*)*len);
-  //copy start of message received and split by space
+  //check if first word in message is our name
   strncpy(n, msg, len);
   strtok(n, " ");
   if (strcmp(n, name) == 0) {
-    printf("ignored message from us\n");
     free(n); n = NULL;
     free(msg); msg = NULL;
     return;
   }
   free(n); n = NULL;
-  //we have to do it this way to get around
-  //names that are substrings in other names
 
-
-  //print connection messages in green, disconnect in red
-  // & welcome in blue
-  if (strstr(msg, "disconnected") != NULL) {
+  //connection messages: green, disconnect: red, welcome: blue
+  if (strstr(msg, "disconnected.") != NULL) {
     printf(RED "%s\n" RESET, msg); 
-  } else if (strstr(msg, "connected") != NULL) {
+  } else if (strstr(msg, "connected.") != NULL) {
      printf(GRN "%s\n" RESET, msg); 
   } else {
    printf(BLU "%s\n" RESET, msg); 
   }
-  fflush(stdout);
+  fflush(stdout); //make sure color gets reset
   free(msg); msg = NULL;
-
 }
 
 void displayMessage(char *msg, char *ourName) {
-    //if message comes from server display appropriately
+    //check who message is coming from
     char *name = getName(msg); 
     if (strcmp(name, "server") == 0) {
+      //display server messages appropriately
       displayServerMsg(msg, ourName); 
     } else if (strcmp(name, ourName) == 0) {
         //if message from ourselves, ignore
@@ -140,12 +153,23 @@ int main(int argc, char* argv[]) {
   //check usage and set default vals
   usage(argc, argv, &ipaddr, &port);
 
+  //signal handling
+  struct sigaction new_action, old_action;
+  sigemptyset(&new_action.sa_mask);
+  sigaddset(&new_action.sa_mask, SIGINT);
+  new_action.sa_handler = safeExit;
+  sigaction(SIGINT, &new_action, &old_action);
+
+  //validate name
+  validateName(argv[1]);
+
   //make socket
   int connfd;  
   if ((connfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
       fprintf(stderr, "socket error");
       exit(errno);
   }
+  fdptr = &connfd;
 
   //setup for connect
   struct sockaddr_in servaddr;
@@ -163,20 +187,16 @@ int main(int argc, char* argv[]) {
     exit(errno);
   }
 
-  printf("Sending server our name... \n");
-  //sendServer our name
+  //send server our name
+  fprintf(stderr, "Sending server our name... \n");
   if(sendLine(connfd, argv[1]) == -1) {
     perror("failed to write to socket");
     exit(1);
   }
-  printf("Name sent.");
 
-  printf("Attempting to join chatroom...");
-  fflush(stdout);
   //check if server let us join chat room
+  fprintf(stderr, "Attempting to join chatroom...\n");
   joinChatRoom(connfd);
-  printf("joined chatroom\n");
-  fflush(stdout);
 
   //setup set for pselect
   fd_set fds;
@@ -211,7 +231,7 @@ int main(int argc, char* argv[]) {
          exit(1);
       }
       //check if received exit from server
-      if (strcmp(recvline, "/exit") == 0) break;
+      if (strcmp(recvline, "server: /exit") == 0) break;
       //else print line
       displayMessage(recvline, argv[1]);
       free(recvline); recvline = NULL;
@@ -223,16 +243,10 @@ int main(int argc, char* argv[]) {
 }
 
 /*
- * TODO
- * dont print what comes in from stdin
-          optional: replace name with you if your the one who sent message
 
-     optional:
+   TODO
      deal wtih sigint or sigquit
       send /exit to server
       close fd
       exit
-        
-    optional:
-    change getLine to getline regardless of line length
 */

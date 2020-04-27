@@ -50,6 +50,7 @@ char *getLine(int maxline) {
     exit(errno);
   }
 }
+
 int sendLine(int fd, char *msg) {
     if (write(fd, msg, strlen(msg)) < 0) {
       perror("failed to write to socket");
@@ -57,3 +58,21 @@ int sendLine(int fd, char *msg) {
     }
     return 0;
 }
+
+//return name from message recieved
+char *getName(char *msg) {
+  char *name = malloc(sizeof(char*)*(strlen(msg)));
+  if (name == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(name, msg);
+  strtok(name, ":");
+  name = realloc(name, sizeof(char*)*strlen(name));
+  if (name == NULL) {
+    perror("realloc failed");
+    exit(1);
+  }
+  return name;
+}
+

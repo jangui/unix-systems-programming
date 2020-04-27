@@ -65,6 +65,8 @@ int main(int argc, char *argv[]) {
   //listen
   listen(socketfd, LISTENQ);
 
+  //TODO startchat() func with all dis below
+
   //create shared data structures
   struct msgQ *queue = initQ(MAXQ);
   struct clientList *clients = initClientList(MAXCONS);
@@ -86,6 +88,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+  //continously loop assigning handlers to each incoming connection
   int connfd;
   while (connfd = accept(socketfd, NULL, NULL)) { 
 
@@ -108,16 +111,11 @@ int main(int argc, char *argv[]) {
       perror("error making thread");
       exit(1);
     }
-    
-    printf("handler assigned to client\n");
-
   }
-
   if (connfd < 0) {
     perror("connection failed");
     exit(1);
   }
-
   return 0;
 }
 
