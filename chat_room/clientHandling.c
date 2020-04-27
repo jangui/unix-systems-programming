@@ -11,6 +11,7 @@
 #include "clientList.h"     // clientList, client, clientAppend, clientRemove
 #include "input.h"
 #include "msgQueue.h"
+#include "signal.h"
 
 #define MAXNAME 30    //TODO make this global?
 #define MAXMSG 4096
@@ -53,7 +54,7 @@ void sendGreet(char *name, int onlineCount, char **names, struct msgQ *queue) {
   //send personalized greet if you're the only one in chat room
   char *greet;
   if (onlineCount == 1) {
-    char *msg = "server: Welcome to the chat room. Looks like you're the only one here!"; 
+    char *msg = "server: Welcome to the chat room. Looks like you're the only one here!\n";
     greet = malloc(sizeof(char*)*(strlen(msg)));
     if (greet == NULL) {
       perror("malloc failed");
@@ -98,6 +99,7 @@ void sendGreet(char *name, int onlineCount, char **names, struct msgQ *queue) {
     strcat(greet, " ");
     ptr++;
   }
+  greet = addNewLine(greet);
   enqueue(queue, greet);
   //greet free'd after dequeue'd
   return;
@@ -126,9 +128,9 @@ void helloGoodbye(char *name, struct msgQ *queue, int flag) {
   char *server = "server: ";
   char *msg;
   if (flag == 0) { 
-    msg = " has connected.";
+    msg = " has connected. \n";
   } else {
-    msg = " has disconnected.";
+    msg = " has disconnected. \n";
   }
   int len = strlen(server)+strlen(name)+strlen(msg);
   char *helloGoodbye = malloc(sizeof(char*)*(len));
@@ -144,6 +146,12 @@ void helloGoodbye(char *name, struct msgQ *queue, int flag) {
 }
 
 void *client_handler(void *a) {
+  //block sigint
+  sigset_t new_mask, old_mask;
+  sigemptyset(&new_mask);
+  sigaddset(&new_mask, SIGINT);
+  sigprocmask(SIG_BLOCK, &new_mask, &old_mask);
+
   //detach ourselves
   pthread_detach(pthread_self());
 
@@ -164,11 +172,6 @@ void *client_handler(void *a) {
   }
   fprintf(stderr, "%s joined the chatroom\n", name);
 
-  //queue message saying we've connected
-  helloGoodbye(name, args->queue, 0);
-  fprintf(stderr, "Q'ing %s's connection message\n", name);
-  fflush(stderr);
-
   //get name of online users
   int onlineCount;
   pthread_mutex_lock(args->connlock);
@@ -180,6 +183,8 @@ void *client_handler(void *a) {
   sendGreet(name, onlineCount, names, args->queue);
   free(names); names = NULL;
 
+  //queue message saying we've connected
+  helloGoodbye(name, args->queue, 0);
   
   //recieve messages from client
   //queue message for chatroom
@@ -188,7 +193,7 @@ void *client_handler(void *a) {
     message = recvLine(*(args->fd), MAXMSG); 
     
     //if recieved "/exit" break out of loop
-    if (strcmp(message, "/exit") == 0) {
+    if (strcmp(message, "/exit\n") == 0) {
       free(message); message = NULL; 
       break;
     }
@@ -262,8 +267,6 @@ void sendOne(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
   } 
   strcpy(newMsg, newFront);
   strcat(newMsg, msg+strlen(token)+1);
-  fprintf(stderr, "Sending greet to %s\n", name);
-  fflush(stderr);
   sendTo(name, newMsg, clients, connlock);
   free(newMsg); newMsg == NULL;
   //msg gets free'd back in queue handler
@@ -288,12 +291,17 @@ void sendCorrectly(char *msg, struct clientList *clients, pthread_mutex_t *connl
 //dequeue message, send to single person or everyone
 //locks and condition vars handled by queue
 void *queue_handler(void *a) {
+  //block sigint
+  sigset_t new_mask, old_mask;
+  sigemptyset(&new_mask);
+  sigaddset(&new_mask, SIGINT);
+  sigprocmask(SIG_BLOCK, &new_mask, &old_mask);
+
   struct queueHandlerArgs *args = (struct queueHandlerArgs *) a;
   char *msg;
   for (;;) {
     msg = dequeue(args->queue);
     sendCorrectly(msg, args->clients, args->connlock);
-    //sendAll(msg, args->clients, args->connlock);
     free(msg); msg = NULL;
   }
 }

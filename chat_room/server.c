@@ -8,6 +8,7 @@
 #include <pthread.h>      // pthread_t, pthread_create, pthread_mutex_lock
                           // pthread_mutex_unlock
 #include <unistd.h>       // close
+#include <signal.h> 
 
 #include "clientList.h"      // clientVector, MAXCONS
 #include "clientHandling.h"  // clientCount, clientCountMutex
@@ -22,6 +23,45 @@
 pthread_mutex_t connlock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t condc = PTHREAD_COND_INITIALIZER;
 pthread_cond_t condp = PTHREAD_COND_INITIALIZER;
+
+pthread_t tid_consumer;
+int socketfd;
+struct msgQ *queue;
+struct clientList *clients;
+
+//signal handler for sigint
+void safeExit(int signum) {
+  //if we haven't started accepting connections
+  //close socket and exit
+  if (queue == NULL && clients == NULL) {
+    close(socketfd);
+    exit(0);
+  }    
+  //exit message needs to be on heap
+  char *ext = "server: /exit\n";
+  char *msg = malloc(sizeof(char*)*(strlen(ext)+1));
+  if (msg == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(msg, ext);
+  //skip queue exit message
+  //this will cause all clients to response with /exit message
+  //causing client threads to terminate gracefully
+  //new clients cant connect (accepting thread is sigint handler)
+  skipQueue(queue, msg);
+
+  //ask consumer thread to terminate
+  int stat = pthread_cancel(tid_consumer);
+  if (stat != 0) {
+    perror("error canceling thread");
+    exit(1);
+  }
+  //destroyQ(queue);
+
+  //terminate
+  exit(0);
+}
 
 // usage: ./server <PORT>
 int checkUsage(int argc, char *argv[]) {
@@ -43,10 +83,17 @@ int checkUsage(int argc, char *argv[]) {
 
 
 int main(int argc, char *argv[]) {
+  //signal handling
+  struct sigaction new_action, old_action;
+  sigemptyset(&new_action.sa_mask);
+  sigaddset(&new_action.sa_mask, SIGINT);
+  new_action.sa_handler = safeExit;
+  sigaction(SIGINT, &new_action, &old_action);
+
+  //check usage
   int port = checkUsage(argc, argv);
 
   //create socket, ipv4 using tcp
-  int socketfd;
   if ((socketfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     fprintf(stderr, "socket error");
     exit(errno);
@@ -68,8 +115,8 @@ int main(int argc, char *argv[]) {
   //TODO startchat() func with all dis below
 
   //create shared data structures
-  struct msgQ *queue = initQ(MAXQ);
-  struct clientList *clients = initClientList(MAXCONS);
+  queue = initQ(MAXQ);
+  clients = initClientList(MAXCONS);
 
   //setup args for queue handler (consumer)
   struct queueHandlerArgs *args = malloc(sizeof(struct queueHandlerArgs));
@@ -82,7 +129,6 @@ int main(int argc, char *argv[]) {
   args->clients = clients;
 
   //start consumer thread
-  pthread_t tid_consumer;
   if (pthread_create(&tid_consumer, NULL, queue_handler, (void*)args) < 0) {
     perror("error making thread");
     exit(1);
@@ -118,81 +164,3 @@ int main(int argc, char *argv[]) {
   }
   return 0;
 }
-
-/*
-  DESIGN
-
-  other:
-    array for structs of fd and names (2 arrys ? one for fd one for name?)
-      ability to grow / shrink array dynamically
-        arry grows doubles when capacity more than half full
-        halves when 1/8 full
-          might be gaps in arry so careful with copying to new arry
-      add / remove elements from the array based on name
-        add should go into first empty spot
-      lookups based on name
-
-  server should handle sigint or sigquit:
-    lock conns 
-
-
-
-
-  per client thread: (queue producer thread)
-    init w/ client
-      client sends name, we recieve
-        if name taken, req other name
-          lookup by name needed
-      store our name, fd & into struct
-      lock connected collection
-      check if size conn== 0
-        send you're only one here to client
-      else
-        send greet message
-          hello! this is everyone connected:
-      add our info struct to conn collection
-      unlock conn
-
-     while not received /exit:
-        recieve messages
-        lock queue (if space to add) (sleep on condition)
-        add to message to queue
-          -concat our name to message
-        wake up queue consumer thread
-        unlock queue
-
-      if recieved /exit:
-        lock conn
-        remove from conn
-          -remove based on fd
-        unlock conn
-        lock queue (if space to add) (sleep on condition)
-        add "x person left message" to queue
-        unlock queue
-
-        close conn fd
-      
-      thread finishes (lets have it detached)
-
-
-  queue consumer thread:
-    if awaken (ready to consume)
-    lock conns
-    send all messages in queue to all conns
-    unlock conns 
-    sleep on condition var of conns
-
-    
-  clean up thread:
-    inf loop call to join() 
-  
-  or use detached threads
-    when server wants to exit
-      make all threads terminate
-        
-      
-
-
-
-
-*/

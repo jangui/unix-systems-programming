@@ -29,7 +29,7 @@ void safeExit(int signum) {
   if (fdptr == NULL) {
     exit(1); 
   }
-  sendLine(*fdptr, "/exit");
+  sendLine(*fdptr, "/exit\n");
   printf(RED "Disconnected.\n"); 
   exit(0);
 }
@@ -131,6 +131,24 @@ void displayServerMsg(char *message, char *name) {
 }
 
 void displayMessage(char *msg, char *ourName) {
+    //if two messages got jumbled in same recvline
+    //display them seperately
+    int len = strlen(msg);
+    for (int i = 1; i < len; i++) {
+      if (*(msg+i) == '\n') {
+        *(msg+i) = '\0';
+        if (i == len-1) break; //last message to be read
+        displayMessage(msg+i+1, ourName); 
+      }
+    }
+
+    //check if received exit from server
+    if (strcmp(msg, "server: /exit") == 0) {
+      printf(RED "Server Disconected.\n");
+      close(*fdptr); 
+      exit(1);
+    }
+
     //check who message is coming from
     char *name = getName(msg); 
     if (strcmp(name, "server") == 0) {
@@ -217,9 +235,10 @@ int main(int argc, char* argv[]) {
     if (FD_ISSET(0, &fds)) {
       //getLine from stdin & send to server
       message = getLine(MAXLINE);
+      message = addNewLine(message);
       sendLine(connfd, message);
       //check if we sent "/exit", if so break out of loop
-      if (strcmp(message, "/exit") == 0) {free(message); break;}
+      if (strcmp(message, "/exit\n") == 0) {free(message); break;}
       free(message); message= NULL;
     }
 
@@ -230,8 +249,6 @@ int main(int argc, char* argv[]) {
          perror("read failed");
          exit(1);
       }
-      //check if received exit from server
-      if (strcmp(recvline, "server: /exit") == 0) break;
       //else print line
       displayMessage(recvline, argv[1]);
       free(recvline); recvline = NULL;
@@ -241,12 +258,3 @@ int main(int argc, char* argv[]) {
   printf(RED "Disconected.\n");
   return 0;
 }
-
-/*
-
-   TODO
-     deal wtih sigint or sigquit
-      send /exit to server
-      close fd
-      exit
-*/

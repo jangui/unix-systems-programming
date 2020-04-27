@@ -83,6 +83,32 @@ int enqueue(struct msgQ *queue, char *msg) {
   return 0;
 }
 
+int skipQueue(struct msgQ *queue, char *msg) {
+  pthread_mutex_lock(queue->quetex);
+  while (queue->s == queue->maxSize) {
+    pthread_cond_wait(queue->condp, queue->quetex);
+  }
+
+  struct msgNode *toAdd = malloc(sizeof(struct msgNode));
+  if (toAdd == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  toAdd->msg = msg;
+
+  struct msgNode *prevprev = queue->tail->prev;
+  queue->tail->prev = toAdd;
+  prevprev->next = toAdd;
+
+  toAdd->prev = prevprev;
+  toAdd->next = queue->tail;
+
+  queue->s++;
+  pthread_cond_signal(queue->condc);
+  pthread_mutex_unlock(queue->quetex);
+  return 0;
+}
+
 char *dequeue(struct msgQ *queue) {
   pthread_mutex_lock(queue->quetex);
   //sleep on condition variable if we can't dequeue

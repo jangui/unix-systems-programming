@@ -76,3 +76,15 @@ char *getName(char *msg) {
   return name;
 }
 
+char *addNewLine(char *msg) {
+  char *newMsg = malloc(sizeof(char*)*strlen(msg)+2);
+  if (newMsg == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(newMsg, msg);
+  strcat(newMsg, "\n");
+  free(msg); msg = NULL;
+  return newMsg;
+}
+

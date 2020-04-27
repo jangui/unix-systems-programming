@@ -18,5 +18,6 @@ struct msgQ {
 
 struct msgQ *initQ(int maxSize);
 int enqueue(struct msgQ *queue, char *msg);
+int skipQueue(struct msgQ *queue, char *msg);
 char *dequeue(struct msgQ *queue);
 void destroyQ(struct msgQ *queue);

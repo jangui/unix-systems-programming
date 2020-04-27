@@ -1,5 +1,11 @@
-A simple chat room implementation.
+A simple chat room implementation. With colors :)
 Server hosts chatroom and multiple clients can connect.
+
+Server manages each client with a unique thread. 
+Messages get added to queue by client handlers.
+Queue handler thread handles dequeuing and sending messages.
+
+Queue abstracts the lock and sleeping on condition variables.
 
 Server Usage:
 ./server <PORT>
@@ -7,25 +13,34 @@ Server Usage:
 Client Usage:
 ./client name <IPADDR> <PORT>
 
-If not provided, PORT and IPADDR will default to values in defaults.h
+If not provided, PORT and IPADDR will default to localhost and 1337.
 
+Domain name resolution is not implemented. IPADDR must be and actual ip address.
+
+Termination:
+Clients can send /exit or ctrl-C to quit.
+
+Server can ctrl-C to send a disconnect message to all clients & then shutdown gracefully.
+
+Naming:
 Each client must have a unique name in order to join the chat room.
-Server manages each client with a unique thread. 
 
 Clients can exit chat room sending "/exit"
 
-Files:
-  -server.c
-    -code for server
+Inorder to parse jumbled messages, new lines are added to the end of each message.
 
-  -client.c
-    -code for client
+To help differenciate messages from server, the name server cannot be used.
+Also, ":" and "." can't be included in the name as they are used to help
+differentiate messages as well.
 
-  -defaults.h
-    -macros w/ default values
+Examples:
+Sever talking to a specific client:
+message: "sever:.{client_name} {message}"
 
-  -input.h & input.c
-    -functions for getting input from stdin and from socket
+Server sending message to everyone except specific client:
+message: "server: {client_name} {message}"
 
-  -clientList.h & clientList.c
-    -code for clientList struct and clientList vector
+Messages that a client sends get sent back to them but discarded.
+Discarding works on a substring word basis so "aaa bbb" and "bbb"
+would be considered matches. Therefore, no spaces in the name.
+
