@@ -8,79 +8,33 @@
 #include <pthread.h>      // pthread_t, pthread_create, pthread_mutex_lock
                           // pthread_mutex_unlock
 #include <unistd.h>       // close
-#include <signal.h> 
+#include <signal.h>       // sigaction, sigset_t, sigprocmask
 
 #include "clientList.h"      // clientVector, MAXCONS
 #include "clientHandling.h"  // clientCount, clientCountMutex
                              // client_handler, establishConnection, clientHandlerArgs
 #include "msgQueue.h"
 
-#define PORT 1337        // default port
-#define LISTENQ 10       // max size for connection queue
-#define MAXCONS 3        // max numbers of connections
-#define MAXQ 3
+#define _XOPEN_SOURCE
+
+#define PORT 1337         // default port
+#define LISTENQ 10        // max size for connection queue
+#define MAXCONS 15        // max numbers of connections
+#define MAXQ 5            // max number of messages that can be in queue
 
 pthread_mutex_t connlock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t condc = PTHREAD_COND_INITIALIZER;
 pthread_cond_t condp = PTHREAD_COND_INITIALIZER;
 
-pthread_t tid_consumer;
-int socketfd;
-struct msgQ *queue;
-struct clientList *clients;
+//globals required for signal handler
+pthread_t tid_consumer;      // queue handler thread id
+int socketfd;                // socket fd
+struct msgQ *queue;          // message queue
+struct clientList *clients;  // connection list of clients
 
-//signal handler for sigint
-void safeExit(int signum) {
-  //if we haven't started accepting connections
-  //close socket and exit
-  if (queue == NULL && clients == NULL) {
-    close(socketfd);
-    exit(0);
-  }    
-  //exit message needs to be on heap
-  char *ext = "server: /exit\n";
-  char *msg = malloc(sizeof(char*)*(strlen(ext)+1));
-  if (msg == NULL) {
-    perror("malloc failed");
-    exit(1);
-  }
-  strcpy(msg, ext);
-  //skip queue exit message
-  //this will cause all clients to response with /exit message
-  //causing client threads to terminate gracefully
-  //new clients cant connect (accepting thread is sigint handler)
-  skipQueue(queue, msg);
-
-  //ask consumer thread to terminate
-  int stat = pthread_cancel(tid_consumer);
-  if (stat != 0) {
-    perror("error canceling thread");
-    exit(1);
-  }
-  //destroyQ(queue);
-
-  //terminate
-  exit(0);
-}
-
-// usage: ./server <PORT>
-int checkUsage(int argc, char *argv[]) {
-  if (argc == 1) return PORT;
-
-  char *endptr;
-  int port = strtol(argv[1], &endptr, 10);
-  if (argv[1] == endptr || argc > 2) {
-    fprintf(stderr, "usage: %s <PORT>\n", argv[0]);
-    exit(1);
-  }
-
-  if (port < 1024 || port > 65535) {
-    fprintf(stderr, "invalid port\n");
-    exit(1);
-  }
-  return port;
-}
-
+void safeExit(int signum);
+int checkUsage(int argc, char *argv[]);
+void startChat();
 
 int main(int argc, char *argv[]) {
   //signal handling
@@ -112,9 +66,13 @@ int main(int argc, char *argv[]) {
   //listen
   listen(socketfd, LISTENQ);
 
-  //TODO startchat() func with all dis below
+  startChat();
 
-  //create shared data structures
+  return 0;
+}
+
+void startChat() {
+  //create queue and client list
   queue = initQ(MAXQ);
   clients = initClientList(MAXCONS);
 
@@ -136,7 +94,7 @@ int main(int argc, char *argv[]) {
 
   //continously loop assigning handlers to each incoming connection
   int connfd;
-  while (connfd = accept(socketfd, NULL, NULL)) { 
+  while ((connfd = accept(socketfd, NULL, NULL))) { 
 
     //setup args for client handler (producer)
     struct clientHandlerArgs *args = malloc(sizeof(struct clientHandlerArgs));
@@ -148,6 +106,10 @@ int main(int argc, char *argv[]) {
     args->connlock = &connlock;
     args->clients = clients;
     int *client_fd = malloc(sizeof(int));
+    if (client_fd == NULL) {
+      perror("malloc failed");
+      exit(1);
+    }
     *client_fd = connfd;
     args->fd = client_fd;
 
@@ -162,5 +124,56 @@ int main(int argc, char *argv[]) {
     perror("connection failed");
     exit(1);
   }
-  return 0;
+}
+
+// usage: ./server <PORT>
+int checkUsage(int argc, char *argv[]) {
+  if (argc == 1) return PORT;
+
+  char *endptr;
+  int port = strtol(argv[1], &endptr, 10);
+  if (argv[1] == endptr || argc > 2) {
+    fprintf(stderr, "usage: %s <PORT>\n", argv[0]);
+    exit(1);
+  }
+
+  if (port < 1024 || port > 65535) {
+    fprintf(stderr, "invalid port\n");
+    exit(1);
+  }
+  return port;
+}
+
+//signal handler for sigint
+void safeExit(int signum) {
+  //if we haven't started accepting connections
+  //close socket and exit
+  if (queue == NULL && clients == NULL) {
+    close(socketfd);
+    exit(0);
+  }    
+  //exit message needs to be on heap
+  char *ext = "server: /exit\n";
+  char *msg = malloc(sizeof(char*)*(strlen(ext)+1));
+  if (msg == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
+  strcpy(msg, ext);
+  //skip queue exit message
+  //this will cause all clients to response with /exit message
+  //causing client threads to terminate gracefully
+  //new clients cant connect (accepting thread is sigint handler)
+  skipQueue(queue, msg);
+
+  //ask consumer thread to terminate
+  if (pthread_cancel(tid_consumer) < 0) {
+    perror("error canceling thread");
+    exit(1);
+  }
+
+  //terminate
+  sleep(1); //sleep a sec to make sure all clients disconnected
+  close(socketfd);
+  exit(0);
 }

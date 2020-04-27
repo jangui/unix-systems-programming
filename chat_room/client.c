@@ -24,6 +24,113 @@
 //need socket fd for signal handler
 int *fdptr = NULL;
 
+void safeExit(int signum);
+void validateName(char *name);
+void usage(int argc, char *argv[], char **ipaddr, int *port);
+void joinChatRoom(int connfd);
+void displayServerMsg(char *message, char *name);
+void displayMessage(char *msg, char *ourName);
+
+int main(int argc, char* argv[]) {
+  int port;
+  char *ipaddr;
+
+  //check usage and set default vals
+  usage(argc, argv, &ipaddr, &port);
+
+  //signal handling
+  errno = 0;
+  struct sigaction new_action, old_action;
+  sigemptyset(&new_action.sa_mask);
+  sigaddset(&new_action.sa_mask, SIGINT);
+  new_action.sa_handler = safeExit;
+  sigaction(SIGINT, &new_action, &old_action);
+  if (errno != 0) {
+    fprintf(stderr, "set up for signal handling failed\n"); 
+    exit(1);
+  }
+
+  //validate name
+  validateName(argv[1]);
+
+  //make socket
+  int connfd;  
+  if ((connfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+      fprintf(stderr, "socket error");
+      exit(errno);
+  }
+  fdptr = &connfd;
+
+  //setup for connect
+  struct sockaddr_in servaddr;
+  memset(&servaddr, 0, sizeof(servaddr));
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_port   = htons(port);
+  if (inet_pton(AF_INET, ipaddr, &servaddr.sin_addr) <= 0) {
+      fprintf(stderr, "inet_pton error for: %s\n", ipaddr);
+      exit(errno);
+  }
+
+  //connect
+  if (connect(connfd, (struct sockaddr*) &servaddr, sizeof(servaddr)) < 0) {
+    perror("connect error");
+    exit(errno);
+  }
+
+  //send server our name
+  fprintf(stderr, "Sending server our name... \n");
+  if(sendLine(connfd, argv[1]) == -1) {
+    perror("failed to write to socket");
+    exit(1);
+  }
+
+  //check if server let us join chat room
+  fprintf(stderr, "Attempting to join chatroom...\n");
+  joinChatRoom(connfd);
+
+  //setup set for pselect
+  fd_set fds;
+  FD_ZERO(&fds);
+  int fd;
+
+  //once connected, continously send and recieve lines
+  char *recvline;
+  char *message;
+  for (;;) {
+    FD_SET(0, &fds);
+    FD_SET(connfd, &fds);
+     
+    fd = select(connfd+1, &fds, NULL, NULL, NULL);
+    
+    if (fd < 0) {perror("select failed");exit(1);}
+
+    if (FD_ISSET(0, &fds)) {
+      //getLine from stdin & send to server
+      message = getLine(MAXLINE);
+      message = addNewLine(message);
+      sendLine(connfd, message);
+      //check if we sent "/exit", if so break out of loop
+      if (strcmp(message, "/exit\n") == 0) {free(message); break;}
+      free(message); message= NULL;
+    }
+
+    if (FD_ISSET(connfd, &fds)) {
+      //receive line from server and print
+      recvline = recvLine(connfd, MAXLINE);
+      if(recvline == NULL) {
+         perror("read failed");
+         exit(1);
+      }
+      //else print line
+      displayMessage(recvline, argv[1]);
+      free(recvline); recvline = NULL;
+    }
+  }
+  close(connfd);
+  printf(RED "Disconected.\n");
+  return 0;
+}
+
 //signal handler for sigint
 void safeExit(int signum) {
   if (fdptr == NULL) {
@@ -108,6 +215,10 @@ void displayServerMsg(char *message, char *name) {
   //(message saying we have connected)
   int len = strlen(name)+1;
   char *n = malloc(sizeof(char*)*len);
+  if (n == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
   //check if first word in message is our name
   strncpy(n, msg, len);
   strtok(n, " ");
@@ -162,99 +273,4 @@ void displayMessage(char *msg, char *ourName) {
       fflush(stdout);
     }
     free(name); name = NULL;
-}
-
-int main(int argc, char* argv[]) {
-  int port;
-  char *ipaddr;
-
-  //check usage and set default vals
-  usage(argc, argv, &ipaddr, &port);
-
-  //signal handling
-  struct sigaction new_action, old_action;
-  sigemptyset(&new_action.sa_mask);
-  sigaddset(&new_action.sa_mask, SIGINT);
-  new_action.sa_handler = safeExit;
-  sigaction(SIGINT, &new_action, &old_action);
-
-  //validate name
-  validateName(argv[1]);
-
-  //make socket
-  int connfd;  
-  if ((connfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-      fprintf(stderr, "socket error");
-      exit(errno);
-  }
-  fdptr = &connfd;
-
-  //setup for connect
-  struct sockaddr_in servaddr;
-  memset(&servaddr, 0, sizeof(servaddr));
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_port   = htons(port);
-  if (inet_pton(AF_INET, ipaddr, &servaddr.sin_addr) <= 0) {
-      fprintf(stderr, "inet_pton error for: %s\n", ipaddr);
-      exit(errno);
-  }
-
-  //connect
-  if (connect(connfd, (struct sockaddr*) &servaddr, sizeof(servaddr)) < 0) {
-    perror("connect error");
-    exit(errno);
-  }
-
-  //send server our name
-  fprintf(stderr, "Sending server our name... \n");
-  if(sendLine(connfd, argv[1]) == -1) {
-    perror("failed to write to socket");
-    exit(1);
-  }
-
-  //check if server let us join chat room
-  fprintf(stderr, "Attempting to join chatroom...\n");
-  joinChatRoom(connfd);
-
-  //setup set for pselect
-  fd_set fds;
-  FD_ZERO(&fds);
-  int fd;
-
-  //once connected, continously send and recieve lines
-  char *recvline;
-  char *message;
-  for (;;) {
-    FD_SET(0, &fds);
-    FD_SET(connfd, &fds);
-     
-    fd = select(connfd+1, &fds, NULL, NULL, NULL);
-    
-    if (fd < 0) {perror("select failed");exit(1);}
-
-    if (FD_ISSET(0, &fds)) {
-      //getLine from stdin & send to server
-      message = getLine(MAXLINE);
-      message = addNewLine(message);
-      sendLine(connfd, message);
-      //check if we sent "/exit", if so break out of loop
-      if (strcmp(message, "/exit\n") == 0) {free(message); break;}
-      free(message); message= NULL;
-    }
-
-    if (FD_ISSET(connfd, &fds)) {
-      //receive line from server and print
-      recvline = recvLine(connfd, MAXLINE);
-      if(recvline == NULL) {
-         perror("read failed");
-         exit(1);
-      }
-      //else print line
-      displayMessage(recvline, argv[1]);
-      free(recvline); recvline = NULL;
-    }
-  }
-  close(connfd);
-  printf(RED "Disconected.\n");
-  return 0;
 }

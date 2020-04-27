@@ -13,21 +13,30 @@
 #include "msgQueue.h"
 #include "signal.h"
 
-#define MAXNAME 30    //TODO make this global?
-#define MAXMSG 4096
-
 //remove client from connected list
 void leaveChatRoom(char *name, int connfd, struct clientList *clients, pthread_mutex_t *connlock) {
-    pthread_mutex_lock(connlock);
+    if (pthread_mutex_lock(connlock) < 0) {
+      perror("error locking mutex");
+      pthread_exit((void*)1);
+    }
     clientRemove(clients, name);
-    pthread_mutex_unlock(connlock);
+    if (pthread_mutex_unlock(connlock) < 0) {
+      perror("error unlocking mutex");
+      pthread_exit((void*)1);
+    }
 }
 
 int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mutex_t *connlock) {
     //try to add client unless full or name already in use
-    pthread_mutex_lock(connlock);
+    if (pthread_mutex_lock(connlock) < 0) {
+      perror("error locking mutex");
+      pthread_exit((void*)1);
+    }
     int status = clientAppend(clients, connfd, name);
-    pthread_mutex_unlock(connlock);
+    if (pthread_mutex_unlock(connlock) < 0) {
+      perror("error unlocking mutex");
+      pthread_exit((void*)1);
+    }
 
     //send response to client based if they cant join or not
     char *response;
@@ -37,7 +46,10 @@ int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mut
       else if (status == -1) response = "FULL";
       printf("%s rejected from chat room: %s\n", name, response);
       //report failure
-      sendLine(connfd, response);
+      if (sendLine(connfd, response) != 0) {
+        perror("error writting to socket");
+        pthread_exit((void*)1);
+      }
       return -1;
     }
 
@@ -86,7 +98,6 @@ void sendGreet(char *name, int onlineCount, char **names, struct msgQ *queue) {
   strcat(greet, msg);
 
   //get online members' names and concate to greet message
-  char *members;
   char **ptr = names;
   while(*ptr != NULL) {
     if (strcmp(*(ptr), name) == 0) {ptr++;continue;} //skip ourselves
@@ -153,14 +164,20 @@ void *client_handler(void *a) {
   sigprocmask(SIG_BLOCK, &new_mask, &old_mask);
 
   //detach ourselves
-  pthread_detach(pthread_self());
+  if (pthread_detach(pthread_self()) < 0) {
+    perror("error detaching thread");
+    pthread_exit((void*)1);
+  }
 
-  //TODO put all this into other func
   struct clientHandlerArgs *args = (struct clientHandlerArgs *) a;
 
   //get name from client
   fprintf(stderr, "Client handler assigned. Waiting for name...\n");
   char *name = recvLine(*(args->fd), MAXNAME);
+  if (name == NULL) {
+    perror("error reading from socket");
+    pthread_exit((void*)1);
+  }
 
   //attempt to join chat room
   int status = joinChatRoom(name, *(args->fd), args->clients, args->connlock);
@@ -174,9 +191,15 @@ void *client_handler(void *a) {
 
   //get name of online users
   int onlineCount;
-  pthread_mutex_lock(args->connlock);
+  if (pthread_mutex_lock(args->connlock) < 0) {
+    perror("failed to lock mutex");
+    pthread_exit((void*)1);
+  }
   char **names = getClients(args->clients, &onlineCount);
-  pthread_mutex_unlock(args->connlock);
+  if (pthread_mutex_unlock(args->connlock) < 0) {
+    perror("failed to lock mutex");
+    pthread_exit((void*)1);
+  }
 
   //queue message for client stating who is currently online
   //consumer will handle sending messages to correct person
@@ -190,7 +213,11 @@ void *client_handler(void *a) {
   //queue message for chatroom
   char *message;
   for (;;) {
-    message = recvLine(*(args->fd), MAXMSG); 
+    message = recvLine(*(args->fd), MAXLINE); 
+    if (message == NULL) {
+      perror("error reading from socket");
+      pthread_exit((void*)1);
+    }
     
     //if recieved "/exit" break out of loop
     if (strcmp(message, "/exit\n") == 0) {
@@ -217,7 +244,10 @@ void *client_handler(void *a) {
 }
 
 void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
-  pthread_mutex_lock(connlock);
+  if (pthread_mutex_lock(connlock) < 0) {
+    perror("error locking mutex");
+    exit(1);
+  }
   struct client **ptr = clients->lst;
   int count = 0;
   for (int i = 0; i < clients->maxSize; i++) {
@@ -225,30 +255,44 @@ void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
     if (count == clients->s) break;
     //send message to each client
     if (*ptr != NULL) {
-      sendLine((*ptr)->fd, msg);
+      if (sendLine((*ptr)->fd, msg) != 0) {
+        perror("error writting to socket");
+        exit(1);
+      }
       count++;
     }
     ptr++;
   }
-  pthread_mutex_unlock(connlock);
+  if (pthread_mutex_unlock(connlock) < 0) {
+    perror("error unlocking mutext"); 
+    exit(1);
+  }
 }
 
 
 //sent message to client if they are connected
 void sendTo(char *name, char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
-  pthread_mutex_lock(connlock);
+  if (pthread_mutex_lock(connlock) < 0) {
+    perror("error locking mutext"); 
+    exit(1);
+  }
   struct client **ptr = clients->lst;
-  int count = 0;
   for (int i = 0; i < clients->maxSize; i++) {
     if (*ptr != NULL) {
       if (strcmp(name, (*ptr)->name) == 0) {
-        sendLine((*ptr)->fd, msg);
+        if (sendLine((*ptr)->fd, msg) != 0) {
+          perror("error writting to socket");
+          exit(1);
+        }
         break;
       }
     }
     ptr++;
   }
-  pthread_mutex_unlock(connlock);
+  if (pthread_mutex_unlock(connlock) < 0) {
+    perror("error locking mutext"); 
+    exit(1);
+  }
 }
 
 //find out who personalized message is to
@@ -268,7 +312,7 @@ void sendOne(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
   strcpy(newMsg, newFront);
   strcat(newMsg, msg+strlen(token)+1);
   sendTo(name, newMsg, clients, connlock);
-  free(newMsg); newMsg == NULL;
+  free(newMsg); newMsg = NULL;
   //msg gets free'd back in queue handler
 }
 
@@ -280,12 +324,12 @@ void sendCorrectly(char *msg, struct clientList *clients, pthread_mutex_t *connl
     if (*(msg+strlen("server:")) == '.') {
       //message from server to specific client
       sendOne(msg, clients, connlock);
-      free(name); name == NULL;
+      free(name); name = NULL;
       return;
     } 
   }
   sendAll(msg, clients, connlock);
-  free(name); name == NULL;
+  free(name); name = NULL;
 }
 
 //dequeue message, send to single person or everyone

@@ -7,6 +7,8 @@ Queue handler thread handles dequeuing and sending messages.
 
 Queue abstracts the lock and sleeping on condition variables.
 
+Also, I started to label all the functions used per inlcude but didn't get around to finish.
+
 Server Usage:
 ./server <PORT>
 

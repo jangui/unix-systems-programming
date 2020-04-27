@@ -9,6 +9,10 @@
 char *recvLine(int fd, int maxline) {
   int n;
   char *recvline = malloc(sizeof(char*)*maxline+1);
+  if (recvline == NULL) {
+    perror("malloc failed");
+    exit(1);
+  }
   recvline[maxline] = '\0';
   if ((n = read(fd, recvline, maxline)) == -1) {
     perror("failed to read from socket");
@@ -49,6 +53,7 @@ char *getLine(int maxline) {
     perror("read failed");
     exit(errno);
   }
+  return NULL;
 }
 
 int sendLine(int fd, char *msg) {
