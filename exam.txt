@@ -59,6 +59,7 @@ The umask is an octal number that is set by the user (I believe it might default
 14)
 
   a) symbolic links are so important because its the only way to create links accross partitions. this is because hardlinks point to inode numbers, and inode numbers are unique for each partition
+  also its the only way to make links to directories. (avoids cycles)
 
   b) symbolic links are a "mapping" between a filename (symlink name) and a filepath. It is implemented by having an inode that points to a block holding the filepath to which the symlink points to. however, if the filepath is short enough, the file name can often be stored directly in the inode. This optimization allows for no disk blocks to be used for the symlink
 
