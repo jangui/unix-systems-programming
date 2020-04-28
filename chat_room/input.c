@@ -36,9 +36,7 @@ char *getLine(int maxline) {
 
    //if reading more than maxline, fail
    if (pos > maxline) {
-     fprintf(stderr, "error: message length too long ");
-     fprintf(stderr, "max length: %d\n", maxline);
-     exit(1);
+     return NULL; //client handles error handling
    }
 
    //read a character at a time

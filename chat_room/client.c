@@ -107,6 +107,12 @@ int main(int argc, char* argv[]) {
     if (FD_ISSET(0, &fds)) {
       //getLine from stdin & send to server
       message = getLine(MAXLINE);
+      if (message == NULL) {
+        fprintf(stderr, RED "Error. Message Length too long. ");
+        fprintf(stderr, "Message could not be sent.\n" RESET);
+        fflush(stderr);
+        continue;
+      }
       message = addNewLine(message);
       sendLine(connfd, message);
       //check if we sent "/exit", if so break out of loop

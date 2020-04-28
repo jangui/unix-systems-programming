@@ -48,7 +48,6 @@ int joinChatRoom(char *name, int connfd, struct clientList *clients, pthread_mut
       //report failure
       if (sendLine(connfd, response) != 0) {
         perror("error writting to socket");
-        pthread_exit((void*)1);
       }
       return -1;
     }
@@ -67,7 +66,7 @@ void sendGreet(char *name, int onlineCount, char **names, struct msgQ *queue) {
   char *greet;
   if (onlineCount == 1) {
     char *msg = "server: Welcome to the chat room. Looks like you're the only one here!\n";
-    greet = malloc(sizeof(char*)*(strlen(msg)));
+    greet = malloc(sizeof(char*)*(strlen(msg)+1));
     if (greet == NULL) {
       perror("malloc failed");
       exit(1);
@@ -185,7 +184,7 @@ void *client_handler(void *a) {
     //unable to join chatroom
     free(a); a = NULL;
     free(name); name = NULL;
-    return NULL;
+    pthread_exit((void*)1);
   }
   fprintf(stderr, "%s joined the chatroom\n", name);
 
@@ -216,7 +215,7 @@ void *client_handler(void *a) {
     message = recvLine(*(args->fd), MAXLINE); 
     if (message == NULL) {
       perror("error reading from socket");
-      pthread_exit((void*)1);
+      break;
     }
     
     //if recieved "/exit" break out of loop
@@ -257,14 +256,13 @@ void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
     if (*ptr != NULL) {
       if (sendLine((*ptr)->fd, msg) != 0) {
         perror("error writting to socket");
-        exit(1);
       }
       count++;
     }
     ptr++;
   }
   if (pthread_mutex_unlock(connlock) < 0) {
-    perror("error unlocking mutext"); 
+    perror("error unlocking mutex"); 
     exit(1);
   }
 }
@@ -273,7 +271,7 @@ void sendAll(char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
 //sent message to client if they are connected
 void sendTo(char *name, char *msg, struct clientList *clients, pthread_mutex_t *connlock) {
   if (pthread_mutex_lock(connlock) < 0) {
-    perror("error locking mutext"); 
+    perror("error locking mutex"); 
     exit(1);
   }
   struct client **ptr = clients->lst;
@@ -282,7 +280,6 @@ void sendTo(char *name, char *msg, struct clientList *clients, pthread_mutex_t *
       if (strcmp(name, (*ptr)->name) == 0) {
         if (sendLine((*ptr)->fd, msg) != 0) {
           perror("error writting to socket");
-          exit(1);
         }
         break;
       }
@@ -290,7 +287,7 @@ void sendTo(char *name, char *msg, struct clientList *clients, pthread_mutex_t *
     ptr++;
   }
   if (pthread_mutex_unlock(connlock) < 0) {
-    perror("error locking mutext"); 
+    perror("error locking mutex"); 
     exit(1);
   }
 }
