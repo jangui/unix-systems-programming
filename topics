@@ -473,6 +473,12 @@ use sigaction instead of signal!
 **sigkill can't be blocked, handled or ignored
 **no signal 0, but can be used to see if process is running
 
+sigsets
+sigprocmask
+sigaction struct
+sigaction func
+sigsuspend
+
 #### Unix Command Line ####
 #basic commands
 find, ls, env, du
