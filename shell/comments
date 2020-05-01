@@ -1,0 +1,6 @@
+late submission
+signal handling: didnt handle signals (SIGINT / SIGQUIT); your program quits directly when sending SIGINT / SIGQUIT
+line 56: should generally use exit(1)
+error checking: should check return values from syscall: e.g: malloc / calloc / dup2 / sigaction / wait waitpid ...
+signal handling: should use sigaction to setup the signal handlers; check sample code under NYUClasses / UNIX SYSTEM PROGRAMMING - 20S Resources  Code  30.SignalDemos / siglongjmp.c
+line 38-42: very interesting idea to use function pointers

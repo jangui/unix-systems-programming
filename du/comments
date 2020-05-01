@@ -1,0 +1,5 @@
+(W) should "#define _GNU_SOURCE" at the first line of the program to resolve warnings on some library calls
+multiple unresolved compilation warning: du.c:118: warning: statement with no effect; du.c:158: warning: unused variable ‘dir'
+can't handle permission denied: when opendir fails on permission denied: should try to lstat and get the block count if possible, resume traversing the file system (to reproduce permission denied: "mkdir empty; chmod 007 empty;")
+the st_blocks contains number of blocks with a block size of 512 bytes; however, the linux du returns number of blocks with a block size of 1024 bytes; therefore when adding up the st_blocks you should divide the value by 2
+can't handle multiple hard links (to create hard link: https://en.wikipedia.org/wiki/Ln_(Unix)  could reproduce by creating files in one directory and creating two hardlinkes for each files in another directory); should add the inode to the list before line 104

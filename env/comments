@@ -1,0 +1,8 @@
+multiple unresolved compilation warnings: line 132: warning: unused variable ‘vKey’; line 177: warning: unused variable ‘flag’ 
+program failed to detect whether there is a provided command to exec or not (e.g test case "./env -i foo=bar1 a=b a=c a=b c=b a=abc")
+line 8: should exit(1) instead of errno
+in general, you dont need to allocate a space on the heap for the key-val string: you can just set the environ[i] = argv[j]
+should not have any single-character variable name (e.g line 62)
+your way of looping an array is kinda wierd (e.g func sizeOf: you can do "while (v[c] != NULL) c++;")
+func find_key: why do you need to allocate a new string on the heap to use strcmp? (also didnt clean up the space)
+

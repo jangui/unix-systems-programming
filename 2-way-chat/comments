@@ -1,0 +1,3 @@
+unexpected behavior: it is required that "On termination of the conversation, the server should resume waiting for another client"; your server will enter infinite loop when client / server quits
+err check: should err check on strtol; should check when read returns 0
+select: not required to have timeout
