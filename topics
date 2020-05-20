@@ -479,6 +479,18 @@ sigaction struct
 sigaction func
 sigsuspend
 
+example setup:
+  errno = 0;
+  struct sigaction new_action, old_action;
+  sigemptyset(&new_action.sa_mask);
+  sigaddset(&new_action.sa_mask, SIGINT);
+  new_action.sa_handler = handlerFunctionName;
+  sigaction(SIGINT, &new_action, &old_action);
+  if (errno != 0) {
+    fprintf(stderr, "set up for signal handling failed\n");
+    exit(1);
+  }
+
 #### Unix Command Line ####
 #basic commands
 find, ls, env, du
@@ -512,17 +524,281 @@ regex
   -cant be a seperate process, needs to operate on current proccess
   -ex: cd, exit
 
-###EXAM 1 ABOVE THIS POINT
 ### Handling multiple inputs ###
 polling
 asynchronus IO
 blocking read (select)
 threads
 
+polling
+  continously loop all inputs trying to read
+    read must be non blocking
+  downside we "burn" cpu cycles
+
+asynchronus IO
+  interupt / signal based
+  lets us do other things in meantime
+
+blocking read (select)
+  (however select essentially polls fds to see which one is ready)
+  ex: 
+    //setup set for pselect
+    fd_set fds;
+    FD_ZERO(&fds);
+    int fd;
+
+    for (;;) {
+      //reset each fd
+      FD_SET(0, &fds);
+      FD_SET(connfd, &fds);
+
+      //notice first arg of select is MAX file desc + 1
+      fd = select(connfd+1, &fds, NULL, NULL, NULL);
+
+      if (fd < 0) {perror("select failed");exit(1);}
+
+      if (FD_ISSET(0, &fds)) {
+        // we can read from fd 0
+      }
+
+      if (FD_ISSET(connfd, &fds)) {
+        //read from other fd (connfd)
+      }
+    }
+
+threads
+  have a different thread handling each read
+  upside efficient
+  downside must include thread safe measures
+
 ### Basic Network Programming ###
+server:
+  socket
+    create socket obj
+      specify things like using IP protocol w/ tcp
+  bind
+    bind to a specific port
+  listen
+    start listening on socket
+  accept
+    accpet a connection and return fd to that socket
+
+client:
+  socket
+    create socket obj (just as server would)
+  connect
+    specify ip and port and connect to it
+      returns fd to connected socket
+
+
+server example:
+  //create socket, ipv4 using tcp
+  int socketfd;
+  if ((socketfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    fprintf(stderr, "socket error");
+    exit(errno);
+  }
+  
+  //setup sockaddr_in
+  struct sockaddr_in servaddr;
+  memset(&servaddr, 0, sizeof(servaddr));
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+  servaddr.sin_port = htons(port);
+
+  //bind
+  bind(socketfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
+
+  //listen         (2nd arg: number of ppl allowed to be queue waiting to connect)
+  listen(socketfd, LISTENQ);
+
+  //accept connections
+  for (;;) {
+    connfd = accept(socketfd, NULL, NULL);
+    // now do something
+  }
+
+
+client example:
+  //make socket
+  int sockfd;
+  if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+      fprintf(stderr, "socket error");
+      exit(errno);
+  }
+
+  //setup for connect
+  struct sockaddr_in  servaddr;
+  memset(&servaddr, 0, sizeof(servaddr));
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_port   = htons(port);
+  if (inet_pton(AF_INET, ipaddr, &servaddr.sin_addr) <= 0) {
+      fprintf(stderr, "inet_pton error for: %s\n", ipaddr);
+      exit(errno);
+  }
+
+  //connect
+  if (connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
+    perror("connect error");
+    exit(errno);
+  }
+
 
 ### FIFO's ###
+note when created umask will limit its perms
+  call chmod
+
+mkfifo - func to make fifo file
+  useful for inner process comunication
+  pipes only allow for parent / children / sibling communication
 
 ### Buffering ###
+C library calls
+  user space buffering
+  buffer gets copied to child when forking
+  buffers get flushed on
+    exit
+    printf flushes on '\n' if printing to console
+      refered as lined buffered
+
+Unix system calls
+  kernel space buffering
+
+buffering issues:
+  duplicated a file
+    large buffer allows faster duplicating
+    slowed by reads rather than writes
+
+OS vs User Space Buffering Issues:
+  printf("a\n");
+  write(0, "b\n", 2);
+  if we are outputting to termina:
+    a
+    b
+  if we are redirecting to file:
+    b
+    a
+
+### Short Circuiting in C ###
+if ( f(a) || g(b)) {
+  //pass
+}
+
+or operator short circuits
+this means, if f(a) is true, g(b) won't be executed
 
 ### Threads ###
+thread context switches are much faster than process context switch
+  context switch doesn't swap out page tables
+    TLB cache isnt cleared
+thread creation much faster than process creation
+
+threads have own stack
+
+pthread_t id
+pthread_create(&tid, NULL, func, argPtr); // 2nd arg is thread creation details
+pthread_join(tid, returnValPtr);
+
+by default if main thread exits, process ends
+  if main thread calls pthread_exit() proc will live untill all threads exit
+
+### Locks ###
+
+Counting Semaphores
+  count from 0 upwards with no upper bound
+  use for counting availability of resources
+    ex: 1 semaphore counting avail space, 1 counting used up
+
+### Condition Vars ###
+used w/ locks
+we wake up process when condition is signaled by other proc
+we can signal other processes to wake up on condition vars
+  pthread_cond_broadcast - wakes up everyone sleeping on condition
+  pthread_cond_signal - wakes up last person that slept on cond
+we sleep on condition when we need to wait for a reasource to be available
+  make sure to loop while cond_wait (call to sleep)
+    deals w/ spurius return
+      unexpected wake up w/ resource not ready
+    we might also wake up and not be able to acquired lock on resource
+      other proc context switched between signaling wake up and giving up lock
+
+unlock then signal
+  -most efficient
+  -once we unlock someone else might get lock
+    -person we woke might have to sleep again
+
+signal then unlock
+  -can be inefficient if we context switch between signal and unlock
+    -very very unlucky tho
+
+waiting on a cond var atomically blocks and releases lock to avoid race cond
+
+Barriers
+  method of setting a sync point for multiple threads 
+  global counter + condition var
+  everyone sleep on decr counter and sleep on cond
+    when count = 0, wake up everyone
+
+### Job Control ###
+shell is owned by foreground proc
+backgrounding a job just means its not taking input from stdin
+
+shell exec:
+  set child in its own proc group (setpgid)
+    child must also set it own proc group to shell's (avoid race cond)
+  hand over control of stdin to child (foreground child)
+    tcsetpgrp(int fd, pid)
+  shell steals back shell after waiting for child
+    tcsetgrp
+    must ignor SIGTTOU when stealing terminal back!!
+
+tgid - process group (pgid) that controls terminal (foreground proc)
+
+to send signal to proc's process group send it to the negative pid of the proc
+
+processes in pipes are in process group of of first process from pipe
+
+### Shared Memory ###
+
+### Files & Sync ###
+each file has their own file object (inode and more)
+a file description is object in the open file tables with info like file cursor
+a file descriptor is the number a program uses to reference index into their open file
+  open files of program point to file descriptions
+different processes may have same / different file descriptor for the same file description
+
+calls to open() create a new file description for a file (and return file descriptor)
+
+file locks
+  a file lock locks the file OBJECT
+  however, file lock is held by file DESCRIPTION
+
+in summary file locks:
+ lock using file descriptor, lock held in file description, lock on file object
+
+if all the file descriptors close the file description, that file description will descrtruct, thus unlocking any locks on file objs if it has
+
+File locks using fcntrl (record locking)
+  allows for locking sequence of bytes in file instead of whole file
+  can be exclusive locks or shared
+    exclusive kinda like mutex, shared kinda like read-write locks, KINDA
+
+  create flock struct and call flock func
+    fnctrl flags
+      F_SETLK
+      F_SETLKW
+      F_GETLK
+
+  flock func has a len field
+    len of bytes from designated start point to lock 
+    if 0, lock till end of file (including everything if it grows)
+
+  theres also deadlock detection
+
+  file locking is advisory by default (no enforcement)
+  
+  mandatory lock enforece by:
+    set_group_id on & turn off group exec perms
+    having set_group_id on w/out group exec perms makes no sense
+      thus we use this to simbolize file enforcing mandatory locks
+    only work if filesystem mounted in correct way allowing for mandatory locks

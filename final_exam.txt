@@ -1,0 +1,180 @@
+
+Name: Jaime Danguillecourt
+
+NYU Net ID: jd3846
+
+Affirmation: Type the contents of the affirmation below, with your name:
+Jaime Danguillecourt, affirm that I have complete the exam completely on my own without consulting outside resources. I have follower the required rules. I understand that violating any of these rules represent academic dishonesty.
+
+
+Multiple Choice: Write the letter of your choice.
+
+1) Ritchie
+
+2) C
+
+3) D
+
+4) G
+
+
+Short Answer
+
+5) a) -1 means we are willing to wait on any process, essencially the same as calling wait()
+   b) NULL is passed as the pointer we want to put the exited processes exit code and reason for exiting in
+   c) I'm actually not sure but guessing by the name NO HANG, it seems like a flag making the wait not hang. Basically, wait won't block, if no one to wait on (no one has exited) don't block and wait, just continue
+
+6) the set-user-id bit is a bit that when set it means whatever user executes the program will have the priviledges of the user who owns the program. This is mostly useful when a user has group perms to run an executable owned by root which requires root perms to run correctly. With the setuid bit set the user that runs that executable will be running it as root.
+
+7) ~mask & flag
+
+8) He needs to set the umask appropriately. umask will disallow the specified permissions on created files. To disallow anyone but our own user to access our file in anyway, we want to get rid of all permissions from the group and the "all" category. A "7" represents read write and execute permissions so if we disble these for groups and all we should be fine. To disable all perms from group and all we can run "umask 077" from the command line.
+
+9) A detached thread does not require for another thread to wait on its exit by calling pthread_join. A detach thread will clean its self up once done executing. Also this means we won't be able to capture a return value, so when we detach a thread we shouldn't be exepecting anything returned.
+
+10) We would expect a deadlock to occur but I recall that file locks have deadlock prevention. I can't exactly recall how the deadlock prevention is done but I would assume the call in p2 would return -1.
+
+11) Mandatory Locking as opposed to advisory locking means that there would be enforcement to the locking mechanism. This means if someone locks a file or part of a file and someone else tries to modify it, the would be prevented. With advisory locking, if someone locks a file, someone else can still modify it.
+
+To enforce mandatory locking, first the filesystem would have to be mounted in a specific way allowing for mandatory locking. Next, if a file has its set_group_id on and group execution permissions off then this is used to say this file has mandatory locking enforced by the OS. Its done this way because have set_group_id on with group exec perms off just doesnt make any sense.
+
+
+12) pselect allows you to specifcy a sigset of signals to block
+
+13) create a new process but creating a pipe between the process created and the creator. It gets passed a command. It returns the pipe (FILE *). Not sure exactly why pclose > fclose.
+
+14) if all reading ends are closed the process will recieve signal SIGPIPE. If SIGPIPE is handled or ignored the write fails, returning -1 with errno set to EPIPE
+
+15) find / -name "*foo*" 2> /dev/null
+
+16) process groups are handy for grouping processes. In class we discussed two uses of process groups. One being that all processes piped together are in the same process group. The other being that the owner of the terminal would have its own process group and the tgid would be the group id of the process group that currently owned the terminal. We also mentioned you could signal an entire process group of a process by signalling the negative process id of that process.
+
+17) SIG_ERR is a way of setting the signal disposition. Because the signal handler needs to be a function we need to pass a function pointer. However, we we really want to send over is the integer -1. Thus we cast the int to function pointer.
+(void (*)()) -1
+
+18)
+
+Longer Code Answers
+
+19)
+
+int main(int argc, char *argv[]) {
+  int pid;
+  int i;
+  int fd[2];
+  pipe(fd);
+
+
+  //create 2 children
+  for (i = 0; i<2; i++) {
+    pid = fork();
+    if (id == 0) {
+      //child
+      break
+    }
+  }
+
+  //parent waits for children to finish
+  if (pid != 0) {
+    //parent
+    for (i = 0; i<2; i++) {
+      wait(NULL);
+    }
+    printf("Done\n");
+    return 0;
+  }
+
+  //first child
+  if (i == 0) {
+    //redirect stdout to writting end of pipe
+    dup2(1, fd[1]);
+
+    //run ls
+    execlp("ls", "ls", "-l", NULL);
+
+  }
+
+  //2nd child
+  if (i == 1) {
+    //read from pipe and print
+    char c[0];
+    while (read(f[0], c, 1) > 0) {
+      puts(c);
+    }
+  }
+}
+
+20)
+
+void bbq_init(BBQ *q, int size) {
+  q = malloc(sizeof(BBQ));
+  q->size = size;
+  q->count = 0;
+  q->data = calloc(size, sizeof(int));
+  q->next = 0;
+  q->front = q->next;
+  pthread_mutex_init(&(q->mutex), NULL);
+  pthread_cond_init(&(q->not_full), NULL);
+  pthread_cond_init(&(q->not_empty), NULL);
+}
+
+void bbq_put(BBQ *q, int i) {
+  pthread_mutex_lock(q->mutex);
+  while (q->count == q->size) {
+    pthread_cond_wait(queue->not_full);
+  }
+  //add elem
+  q->data[q->next] = i;
+  (q->count)++;
+
+  if (q->next == q->size){
+    q->next = 0;
+  } else {
+    (q->next)++;
+  }
+
+  pthread_cond_signal(q->not_empty);
+  pthread_mutex_unlock(q->mutex);
+}
+
+void bbq_destroy(BBQ *q) {
+  free(q->data);
+  pthread_mutex_destroy(queue->mutex);
+  pthread_cond_destroy(queue->not_full);
+  pthread_cond_destroy(queue->not_empty);
+}
+
+void *producer(void *args) {
+  BBQ *q = (BBQ *)args;
+  for (int i = 0; i<10, i++) {
+    bbq_put(q, i);
+  }
+}
+
+void *consumer(void *args) {
+  BBQ *q = (BBQ *)args;
+  int sum = 0;
+  for (int i = 0; i<10, i++) {
+    sum += bbq_get(q);
+  }
+  return sum;
+}
+
+int main() {
+  BBQ *q;
+  int *ret;
+
+  int size = 5;
+  bbq_init(q, size);
+
+  pthread_t tid_consumer;
+  pthread_t tid_producer;
+  pthread_create(&tid_consumer, NULL, consumer, (void*)q);
+  pthread_create(&tid_producer, NULL, producer, (void*)q);
+  pthread_join(&tid_consumer, NULL);
+  pthread_join(&tid_producer, (void*)ret);
+
+  printf("Sum: %d\n", *ret);
+
+  bbq_destroy(q);
+}
